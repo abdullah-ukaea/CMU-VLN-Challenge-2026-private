@@ -47,6 +47,14 @@ Field semantics, units, coordinate conventions and validation rules are defined
 in [`docs/contracts.md`](docs/contracts.md). Treat changes to these types as API
 changes that require corresponding producer, consumer and regression updates.
 
+## Language Parser
+
+The ROS-independent language subsystem provides deterministic task
+classification, span-aware feature extraction, full parsing into the frozen
+`TaskSpecification`, and a degraded parser for partial recovery. Its supported
+grammar, public API, normalized route actions, and fallback behavior are
+documented in [`docs/parser.md`](docs/parser.md).
+
 ## Build
 
 From `/home/docker/ai_module` in the AI container:
