@@ -3,9 +3,9 @@
 Q-MapNav is the competition AI package for the CMU Vision-Language-Navigation
 Challenge 2026. It is a ROS 2 Jazzy `ament_python` package.
 
-This initial scaffold freezes the subsystem boundaries from the Q-MapNav v2.0
-design. It deliberately contains no parser, perception, mapping, reasoning, or
-navigation behavior yet.
+The package currently includes the deterministic language layer and the Day 2
+runtime skeleton: question latching, bounded sequential waypoint execution,
+registered-scan accumulation, and observational decision tracing.
 
 ## Package Structure
 
@@ -57,11 +57,16 @@ documented in [`docs/parser.md`](docs/parser.md).
 
 ## Protocol Execution
 
-The mission node now latches the first valid challenge question, suppresses
-repeated publications, and adapts the ROS-independent sequential waypoint
-executor to the official question, odometry, and waypoint topics. The current
-state model and its deliberately deferred recovery features are documented in
+The mission node latches the first valid challenge question, suppresses repeats,
+and adapts the ROS-independent sequential waypoint executor to the official
+question, odometry, and waypoint topics. Progress monitoring, bounded recovery,
+and pose-hold cancellation are documented in
 [`docs/execution.md`](docs/execution.md).
+
+The bounded map-frame registered-scan foundation and its conservative
+safe-offset policy are documented in [`docs/mapping.md`](docs/mapping.md).
+Versioned, bounded asynchronous JSONL traces are documented in
+[`docs/tracing.md`](docs/tracing.md).
 
 ## Build
 

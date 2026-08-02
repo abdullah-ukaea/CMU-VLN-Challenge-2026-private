@@ -1,7 +1,8 @@
-# Question And Waypoint Protocol Primitives
+# Question And Waypoint Execution
 
-The Day 2 protocol layer keeps episode input and basic route execution
-deterministic and independent from perception or semantic planning.
+The Day 2 protocol layer owns episode input and robust single-active-waypoint
+execution. Its state and safety decisions are deterministic and independent of
+ROS transport.
 
 ## Question Latch
 
@@ -12,41 +13,70 @@ whitespace. Later publications produce one of two ignored outcomes:
 - `conflict` when a different question arrives during the active process
   episode.
 
-Neither outcome replaces the active question or reparses it. The ROS node
-subscribes to `/challenge_question` with `std_msgs/msg/String` and invokes the
-deterministic parser exactly once for the accepted question.
-
-The competition restarts the process for each evaluated question, so this
-initial latch deliberately has no in-process episode-reset operation.
+Neither outcome replaces the active question or invokes the parser again. The
+competition restarts the process for each evaluated question, so the latch has
+no in-process episode-reset operation.
 
 ## Sequential Waypoint Executor
 
-`SequentialWaypointExecutor` owns an immutable copy of an ordered route of
-`Waypoint2D` values. It is ROS-independent and has three basic states:
+`SequentialWaypointExecutor` owns an immutable copy of the semantic route. It
+returns only a goal that the ROS adapter should publish, and never sends the
+next semantic waypoint until map-frame XY odometry is at or inside the
+configurable arrival radius.
 
 ```text
 idle -> active -> complete
+          |
+          +-> recovering -> active
+          |
+          +-> failed
+          +-> cancelled
 ```
 
-Starting a route returns only waypoint zero. The ROS adapter publishes that goal
-as `geometry_msgs/msg/Pose2D` on `/way_point_with_heading`. Each
-`nav_msgs/msg/Odometry` update from `/state_estimation` supplies the robot's map
-XY position to the executor.
+The initial measurement-driven settings are:
 
-The executor computes planar distance to the one active goal. At or inside the
-provisional `0.75 m` arrival radius, it activates and returns the next waypoint.
-Arrival at the last waypoint moves the route to `complete` without emitting
-another goal. Heading is transported to the base but is not part of this year's
-arrival gate.
+| Setting | Default | Meaning |
+|---|---:|---|
+| Arrival radius | `0.75 m` | Pose-based waypoint arrival |
+| Progress epsilon | `0.15 m` | Required decrease in best distance |
+| No-progress timeout | `12 s` | Time before one bounded action |
+| Direct republish limit | `1` | Republishes per semantic waypoint |
+| Safe-offset limit | `1` | Recovery attempts per semantic waypoint |
 
-An active route cannot be replaced. This protects the measured Day 1 protocol:
-the base itself replaces a goal immediately and does not maintain a waypoint
-queue, so Q-MapNav must be the sole owner of route ordering.
+Distance must improve relative to the best distance seen for the current
+target. Small oscillations therefore cannot postpone the watchdog forever.
+After one direct republish, the executor asks an injected map policy for a safe
+offset. A missing, unknown, occupied, non-finite, or out-of-bounds candidate is
+rejected and the route fails; the executor never invents an unchecked offset.
+After reaching an accepted offset it retries the interrupted semantic waypoint
+without resetting either retry budget.
 
-## Current Boundary
+Every start, meaningful progress update, arrival, republish, recovery,
+completion, failure, and cancellation creates an immutable `ExecutorEvent`.
+Tracing observes those events but does not control state transitions.
 
-This implementation intentionally does not yet include progress monitoring,
-no-progress timeouts, republishing, safe-offset recovery, cancellation, or a
-mission deadline. Those remain separate requested tasks and will extend the
-executor state machine without changing the current one-goal and pose-arrival
-contracts.
+## Cancellation
+
+The challenge exposes no cancel topic. Day 1 established that a newly published
+waypoint immediately replaces the base's current goal. Cancellation therefore:
+
+1. clears the executor's active and recovery targets;
+2. enters the terminal `cancelled` state;
+3. publishes the latest map-frame robot pose as a hold goal when a pose is
+   available;
+4. emits no further semantic route waypoint.
+
+With no known pose, cancellation remains terminal but deliberately publishes
+nothing rather than inventing a hold location. Repeated cancellation and
+cancellation after another terminal state are no-ops.
+
+## ROS Adapter
+
+The mission node uses the official interfaces:
+
+- `/challenge_question` (`std_msgs/msg/String`);
+- `/state_estimation` (`nav_msgs/msg/Odometry`);
+- `/way_point_with_heading` (`geometry_msgs/msg/Pose2D`).
+
+A `0.25 s` timer invokes the pure watchdog. Heading is sent to the base and
+retained for pose-hold cancellation, but it does not gate Day 2 arrival.

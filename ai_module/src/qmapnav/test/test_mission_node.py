@@ -3,7 +3,9 @@
 from collections.abc import Iterator
 
 import pytest
+from qmapnav.evaluation import InMemoryTraceRecorder
 from qmapnav.language import parse_question
+from qmapnav.mapping import RegisteredScanAccumulator
 from qmapnav.navigation import Waypoint2D
 from qmapnav.navigation import WaypointExecutorState
 
@@ -26,7 +28,7 @@ def node() -> Iterator[object]:
     import rclpy
 
     rclpy.init()
-    qmapnav_node = QMapNavNode()
+    qmapnav_node = QMapNavNode(trace_recorder=InMemoryTraceRecorder())
     try:
         yield qmapnav_node
     finally:
@@ -52,9 +54,10 @@ def _pose(x: float, y: float) -> object:
     return message
 
 
-def test_node_uses_only_required_official_protocol_topics(node: object) -> None:
+def test_node_uses_only_permitted_official_topics(node: object) -> None:
     assert node._question_subscription.topic_name == '/challenge_question'
     assert node._pose_subscription.topic_name == '/state_estimation'
+    assert node._scan_subscription.topic_name == '/registered_scan'
     assert node._waypoint_publisher.topic_name == '/way_point_with_heading'
 
 
@@ -69,7 +72,10 @@ def test_node_parses_first_question_and_ignores_repeated_publications() -> None:
         return parse_question(question)
 
     rclpy.init()
-    node = QMapNavNode(question_parser=recording_parser)
+    node = QMapNavNode(
+        question_parser=recording_parser,
+        trace_recorder=InMemoryTraceRecorder(),
+    )
     question = 'How many computer monitors are on the table?'
     try:
         node._on_question(_question('   '))
@@ -128,3 +134,81 @@ def test_node_publishes_route_one_goal_at_a_time_from_pose_updates(
         (3.0, 1.0, 0.0),
     ]
     assert node.waypoint_executor.state is WaypointExecutorState.COMPLETE
+
+
+def test_node_cancellation_publishes_current_pose_hold_once(node: object) -> None:
+    recorder = _RecordingPublisher()
+    node._waypoint_publisher = recorder
+    node.start_route([Waypoint2D(10.0, 0.0)])
+    node._on_pose(_pose(1.0, 2.0))
+
+    node.cancel_route()
+    node.cancel_route()
+
+    published = [
+        (message.x, message.y, message.theta) for message in recorder.messages
+    ]
+    assert published == [(10.0, 0.0, 0.0), (1.0, 2.0, 0.0)]
+    assert node.waypoint_executor.state is WaypointExecutorState.CANCELLED
+
+
+def test_node_records_question_route_and_completion_events() -> None:
+    from qmapnav.mission.node import QMapNavNode
+    import rclpy
+
+    trace = InMemoryTraceRecorder()
+    rclpy.init()
+    node = QMapNavNode(trace_recorder=trace)
+    try:
+        node._on_question(
+            _question('First go near the plant, then stop near the window.')
+        )
+        node.start_route([Waypoint2D(1.0, 0.0)])
+        node._on_pose(_pose(1.0, 0.0))
+
+        event_names = [event.event for event in trace.events]
+        assert 'question_latched' in event_names
+        assert 'task_parsed' in event_names
+        assert 'route_started' in event_names
+        assert 'route_completed' in event_names
+        completion = next(
+            event for event in trace.events if event.event == 'route_completed'
+        )
+        assert completion.terminal_status == 'complete'
+        assert completion.active_route_index == 0
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_node_adapts_registered_scan_into_persistent_map() -> None:
+    from qmapnav.mission.node import QMapNavNode
+    from sensor_msgs.msg import PointCloud2
+    import numpy as np
+    import rclpy
+
+    points = np.array([[1.0, 0.0, 0.5], [1.01, 0.0, 0.5]])
+    accumulator = RegisteredScanAccumulator()
+    rclpy.init()
+    node = QMapNavNode(
+        scan_accumulator=accumulator,
+        trace_recorder=InMemoryTraceRecorder(),
+        point_cloud_decoder=lambda message: points,
+    )
+    try:
+        message = PointCloud2()
+        message.header.frame_id = 'map'
+        node._on_registered_scan(message)
+        node._on_registered_scan(message)
+
+        assert accumulator.stats().accepted_scan_count == 2
+        assert accumulator.stats().voxel_count == 1
+        assert any(
+            event.event == 'registered_scan_accumulated'
+            for event in node._trace_recorder.events
+        )
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
