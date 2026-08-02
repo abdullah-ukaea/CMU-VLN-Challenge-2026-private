@@ -7,6 +7,11 @@ The package currently includes the deterministic language layer and the Day 2
 runtime skeleton: question latching, bounded sequential waypoint execution,
 registered-scan accumulation, and observational decision tracing.
 
+Day 3 development infrastructure adds validated adapters for released
+questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
+reference trajectories, and answer evidence. Oracle reasoning and evaluation
+remain separate from this loading layer.
+
 ## Package Structure
 
 ```text
@@ -67,6 +72,10 @@ The bounded map-frame registered-scan foundation and its conservative
 safe-offset policy are documented in [`docs/mapping.md`](docs/mapping.md).
 Versioned, bounded asynchronous JSONL traces are documented in
 [`docs/tracing.md`](docs/tracing.md).
+
+The development-only normalized ground-truth records, source validation,
+selective VLA-3D metadata retrieval, and answer provenance rules are documented
+in [`docs/ground_truth.md`](docs/ground_truth.md).
 
 ## Build
 
