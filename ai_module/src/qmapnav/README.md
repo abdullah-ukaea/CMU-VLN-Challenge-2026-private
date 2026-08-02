@@ -9,8 +9,9 @@ registered-scan accumulation, and observational decision tracing.
 
 Day 3 development infrastructure adds validated adapters for released
 questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
-reference trajectories, and answer evidence. Oracle reasoning and evaluation
-remain separate from this loading layer.
+reference trajectories, and answer evidence. The oracle layer now resolves
+counts and object references and plans ordered semantic routes from perfect
+objects. Proxy evaluation remains a separate, later task.
 
 ## Package Structure
 
@@ -76,6 +77,10 @@ Versioned, bounded asynchronous JSONL traces are documented in
 The development-only normalized ground-truth records, source validation,
 selective VLA-3D metadata retrieval, and answer provenance rules are documented
 in [`docs/ground_truth.md`](docs/ground_truth.md).
+
+Perfect-object candidate reasoning, semantic floor geometry, and the oracle
+grid route planner are documented in
+[`docs/oracle_reasoning.md`](docs/oracle_reasoning.md).
 
 ## Build
 
