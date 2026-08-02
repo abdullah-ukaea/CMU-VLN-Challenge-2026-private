@@ -55,6 +55,14 @@ classification, span-aware feature extraction, full parsing into the frozen
 grammar, public API, normalized route actions, and fallback behavior are
 documented in [`docs/parser.md`](docs/parser.md).
 
+## Protocol Execution
+
+The mission node now latches the first valid challenge question, suppresses
+repeated publications, and adapts the ROS-independent sequential waypoint
+executor to the official question, odometry, and waypoint topics. The current
+state model and its deliberately deferred recovery features are documented in
+[`docs/execution.md`](docs/execution.md).
+
 ## Build
 
 From `/home/docker/ai_module` in the AI container:
