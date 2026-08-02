@@ -34,6 +34,19 @@ composition root:
 These boundaries keep offline tests independent from ROS orchestration and avoid
 circular subsystem dependencies.
 
+## Shared Contracts
+
+The frozen subsystem interfaces are exported from `qmapnav.common`:
+
+- `TaskSpecification` and its language-supporting types;
+- `ObjectInstance`;
+- `ResolvedTask` and `ResolvedConstraint`;
+- `EpisodeResult`.
+
+Field semantics, units, coordinate conventions and validation rules are defined
+in [`docs/contracts.md`](docs/contracts.md). Treat changes to these types as API
+changes that require corresponding producer, consumer and regression updates.
+
 ## Build
 
 From `/home/docker/ai_module` in the AI container:

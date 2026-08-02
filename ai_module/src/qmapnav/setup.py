@@ -16,7 +16,7 @@ setup(
         (f'share/{PACKAGE_NAME}', ['package.xml']),
         (f'share/{PACKAGE_NAME}/launch', ['launch/qmapnav.launch.py']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['numpy', 'setuptools'],
     zip_safe=False,
     maintainer='Abdullah Saleem',
     maintainer_email='abdullahsaleem1080@gmail.com',
