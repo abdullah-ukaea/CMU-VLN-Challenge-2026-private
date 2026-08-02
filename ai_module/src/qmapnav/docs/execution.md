@@ -42,6 +42,7 @@ The initial measurement-driven settings are:
 | No-progress timeout | `12 s` | Time before one bounded action |
 | Direct republish limit | `1` | Republishes per semantic waypoint |
 | Safe-offset limit | `1` | Recovery attempts per semantic waypoint |
+| Episode deadline | `600 s` | Terminal bound for every non-terminal state |
 
 Distance must improve relative to the best distance seen for the current
 target. Small oscillations therefore cannot postpone the watchdog forever.
@@ -50,6 +51,12 @@ offset. A missing, unknown, occupied, non-finite, or out-of-bounds candidate is
 rejected and the route fails; the executor never invents an unchecked offset.
 After reaching an accepted offset it retries the interrupted semantic waypoint
 without resetting either retry budget.
+
+The mission watchdog also enforces the episode deadline rather than merely
+reporting it. Expiry moves idle, active, or recovery execution to `failed`.
+When an active route has a known robot pose, expiry replaces the base goal with
+that pose as a hold command. Terminal states are never rewritten by a later
+deadline tick.
 
 Every start, meaningful progress update, arrival, republish, recovery,
 completion, failure, and cancellation creates an immutable `ExecutorEvent`.

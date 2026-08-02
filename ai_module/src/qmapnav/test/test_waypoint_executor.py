@@ -319,6 +319,40 @@ def test_cancel_during_recovery_stops_interrupted_route() -> None:
     assert executor.tick(now=30.0) is None
 
 
+def test_deadline_expiry_fails_active_route_with_pose_hold_metadata() -> None:
+    executor = SequentialWaypointExecutor()
+    executor.start(ROUTE, now=0.0)
+    executor.update_pose(0.2, -0.3, 1.2, now=1.0)
+
+    hold = executor.expire(now=600.0)
+
+    assert hold == Waypoint2D(0.2, -0.3, 1.2)
+    assert executor.state is WaypointExecutorState.FAILED
+    failure = executor.drain_events()[-1]
+    assert failure.event_type is ExecutorEventType.ROUTE_FAILED
+    assert failure.reason == 'episode_deadline_exceeded'
+    assert failure.route_index == 0
+    assert failure.waypoint == hold
+    assert executor.expire(now=601.0) is None
+
+
+def test_deadline_expiry_terminates_idle_state_without_inventing_hold() -> None:
+    executor = SequentialWaypointExecutor()
+
+    assert executor.expire(now=600.0) is None
+    assert executor.state is WaypointExecutorState.FAILED
+    assert executor.drain_events()[-1].reason == 'episode_deadline_exceeded'
+
+
+def test_deadline_does_not_replace_existing_terminal_state() -> None:
+    executor = SequentialWaypointExecutor()
+    executor.start([Waypoint2D(0.0, 0.0)], now=0.0)
+    executor.update_pose(0.0, 0.0, now=1.0)
+
+    assert executor.expire(now=600.0) is None
+    assert executor.state is WaypointExecutorState.COMPLETE
+
+
 @pytest.mark.parametrize(
     ('keyword', 'value'),
     [

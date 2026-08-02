@@ -29,6 +29,17 @@ class CardinalityMention:
 
 
 @dataclass(frozen=True)
+class AttributeMention:
+    """One normalized non-colour entity attribute and source span."""
+
+    source_text: str
+    attribute_name: str
+    normalized: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
 class AvoidancePhrase:
     """One forbidden-path phrase found in an instruction."""
 
@@ -52,6 +63,7 @@ class LanguageExtraction:
 
     object_nouns: tuple[Mention, ...]
     colours: tuple[Mention, ...]
+    attributes: tuple[AttributeMention, ...]
     cardinalities: tuple[CardinalityMention, ...]
     structural_entities: tuple[Mention, ...]
     spatial_relations: tuple[Mention, ...]
@@ -277,6 +289,33 @@ _COLOURS = {
     'yellow': 'yellow',
 }
 
+# These conservative lexical attributes complement colour without attempting a
+# general-purpose adjective parser. Values are normalized for later grounding.
+_ATTRIBUTES = {
+    'big': ('size', 'large'),
+    'large': ('size', 'large'),
+    'little': ('size', 'small'),
+    'small': ('size', 'small'),
+    'tiny': ('size', 'small'),
+    'short': ('size', 'short'),
+    'tall': ('size', 'tall'),
+    'circular': ('shape', 'round'),
+    'oval': ('shape', 'oval'),
+    'rectangular': ('shape', 'rectangular'),
+    'round': ('shape', 'round'),
+    'square': ('shape', 'square'),
+    'ceramic': ('material', 'ceramic'),
+    'fabric': ('material', 'fabric'),
+    'glass': ('material', 'glass'),
+    'leather': ('material', 'leather'),
+    'metal': ('material', 'metal'),
+    'metallic': ('material', 'metal'),
+    'plastic': ('material', 'plastic'),
+    'stone': ('material', 'stone'),
+    'wood': ('material', 'wood'),
+    'wooden': ('material', 'wood'),
+}
+
 _SPATIAL_RELATIONS = {
     'above': 'above',
     'behind': 'behind',
@@ -471,6 +510,23 @@ def _extract_cardinalities(text: str) -> tuple[CardinalityMention, ...]:
     return tuple(sorted(mentions, key=lambda item: (item.start, item.end)))
 
 
+def _extract_attributes(text: str) -> tuple[AttributeMention, ...]:
+    mentions = []
+    for source, (attribute_name, normalized) in _ATTRIBUTES.items():
+        pattern = re.compile(r'(?<!\w)' + re.escape(source) + r'(?!\w)', re.I)
+        for match in pattern.finditer(text):
+            mentions.append(
+                AttributeMention(
+                    source_text=match.group(),
+                    attribute_name=attribute_name,
+                    normalized=normalized,
+                    start=match.start(),
+                    end=match.end(),
+                )
+            )
+    return tuple(sorted(mentions, key=lambda item: (item.start, item.end)))
+
+
 def _extract_avoidance(text: str) -> tuple[AvoidancePhrase, ...]:
     phrases = []
     for match in _AVOIDANCE_PATTERN.finditer(text):
@@ -600,6 +656,7 @@ def extract_language_features(question: str) -> LanguageExtraction:
     return LanguageExtraction(
         object_nouns=object_nouns,
         colours=colours,
+        attributes=_extract_attributes(question),
         cardinalities=_extract_cardinalities(question),
         structural_entities=structural_entities,
         spatial_relations=spatial_relations,
@@ -610,6 +667,7 @@ def extract_language_features(question: str) -> LanguageExtraction:
 
 
 __all__ = [
+    'AttributeMention',
     'AvoidancePhrase',
     'CardinalityMention',
     'LanguageExtraction',

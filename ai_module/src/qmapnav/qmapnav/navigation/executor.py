@@ -384,6 +384,30 @@ class SequentialWaypointExecutor:
         )
         return hold
 
+    def expire(self, *, now: float | None = None) -> Waypoint2D | None:
+        """Fail a non-terminal episode and return a pose-hold goal if known."""
+        timestamp = self._resolve_time(now)
+        if self._state in {
+            WaypointExecutorState.COMPLETE,
+            WaypointExecutorState.FAILED,
+            WaypointExecutorState.CANCELLED,
+        }:
+            return None
+        hold = (
+            self._latest_pose
+            if self._state in {
+                WaypointExecutorState.ACTIVE,
+                WaypointExecutorState.RECOVERING,
+            }
+            else None
+        )
+        self._fail(
+            timestamp,
+            'episode_deadline_exceeded',
+            hold_waypoint=hold,
+        )
+        return hold
+
     def drain_events(self) -> tuple[ExecutorEvent, ...]:
         """Return and clear accumulated observable state transitions."""
         events = tuple(self._events)
@@ -445,7 +469,13 @@ class SequentialWaypointExecutor:
         )
         return next_waypoint
 
-    def _fail(self, timestamp: float, reason: str) -> None:
+    def _fail(
+        self,
+        timestamp: float,
+        reason: str,
+        *,
+        hold_waypoint: Waypoint2D | None = None,
+    ) -> None:
         failed_index = self._active_index
         self._active_index = None
         self._recovery_waypoint = None
@@ -455,6 +485,7 @@ class SequentialWaypointExecutor:
             timestamp,
             reason=reason,
             route_index=failed_index,
+            waypoint=hold_waypoint,
         )
 
     def _reset_watchdog(

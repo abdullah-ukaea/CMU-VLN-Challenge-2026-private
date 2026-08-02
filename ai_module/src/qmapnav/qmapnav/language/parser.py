@@ -130,6 +130,12 @@ def _build_entities(
             previous_entity_end,
         )
         attributes = {'colour': colour.normalized} if colour else {}
+        for attribute in extraction.attributes:
+            if (
+                previous_entity_end <= attribute.start
+                and attribute.end <= mention.start
+            ):
+                attributes[attribute.attribute_name] = attribute.normalized
         reference = EntityReference(
             entity_id=f'{mention.normalized}_{occurrence}',
             class_name=mention.normalized,

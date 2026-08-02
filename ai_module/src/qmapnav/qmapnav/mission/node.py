@@ -29,6 +29,7 @@ from qmapnav.navigation import SequentialWaypointExecutor
 from qmapnav.navigation import Waypoint2D
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
@@ -43,8 +44,12 @@ class QMapNavNode(Node):
         scan_accumulator: RegisteredScanAccumulator | None = None,
         trace_recorder: TraceRecorder | None = None,
         point_cloud_decoder: Callable[[object], object] = decode_xyz_points,
+        parameter_overrides: list[Parameter] | None = None,
     ) -> None:
-        super().__init__('qmapnav')
+        super().__init__(
+            'qmapnav',
+            parameter_overrides=parameter_overrides,
+        )
         self._declare_parameters()
         self._question_parser = question_parser
         self._point_cloud_decoder = point_cloud_decoder
@@ -52,6 +57,8 @@ class QMapNavNode(Node):
         self._episode_time_limit = float(
             self.get_parameter('episode_time_limit').value
         )
+        if self._episode_time_limit <= 0.0:
+            raise ValueError('episode_time_limit must be positive')
         self._trace_flush_timeout = float(
             self.get_parameter('trace_flush_timeout').value
         )
@@ -160,6 +167,8 @@ class QMapNavNode(Node):
 
     def start_route(self, route: Iterable[Waypoint2D]) -> None:
         """Start a route and publish exactly its first active waypoint."""
+        if self._expire_episode_if_needed():
+            raise RuntimeError('cannot start route after episode deadline')
         first_goal = self._waypoint_executor.start(route, now=self._now())
         self._publish_waypoint(first_goal)
         self._record_executor_events()
@@ -189,6 +198,8 @@ class QMapNavNode(Node):
         super().destroy_node()
 
     def _on_question(self, message: String) -> None:
+        if self._expire_episode_if_needed():
+            return
         decision = self._question_latch.offer(message.data)
         if decision.status is QuestionLatchStatus.ACCEPTED:
             try:
@@ -245,6 +256,8 @@ class QMapNavNode(Node):
             )
 
     def _on_pose(self, message: Odometry) -> None:
+        if self._expire_episode_if_needed():
+            return
         position = message.pose.pose.position
         orientation = message.pose.pose.orientation
         heading = atan2(
@@ -263,12 +276,16 @@ class QMapNavNode(Node):
         self._record_executor_events()
 
     def _on_watchdog(self) -> None:
+        if self._expire_episode_if_needed():
+            return
         goal = self._waypoint_executor.tick(now=self._now())
         if goal is not None:
             self._publish_waypoint(goal)
         self._record_executor_events()
 
     def _on_registered_scan(self, message: PointCloud2) -> None:
+        if self._expire_episode_if_needed():
+            return
         try:
             points = self._point_cloud_decoder(message)
             result = self._scan_accumulator.add_scan(
@@ -375,6 +392,11 @@ class QMapNavNode(Node):
                 and event.waypoint is not None
             ):
                 action = 'publish_pose_hold_and_cancel'
+            elif (
+                event.event_type is ExecutorEventType.ROUTE_FAILED
+                and event.waypoint is not None
+            ):
+                action = 'publish_pose_hold_and_fail'
         self._trace(
             event=event.event_type.value,
             candidate_actions=(action,),
@@ -468,6 +490,15 @@ class QMapNavNode(Node):
                 ),
             )
         )
+
+    def _expire_episode_if_needed(self) -> bool:
+        if self._elapsed() < self._episode_time_limit:
+            return False
+        hold_goal = self._waypoint_executor.expire(now=self._now())
+        if hold_goal is not None:
+            self._publish_waypoint(hold_goal)
+        self._record_executor_events()
+        return True
 
     def _create_trace_recorder(self) -> JsonlDecisionTraceRecorder:
         return JsonlDecisionTraceRecorder(

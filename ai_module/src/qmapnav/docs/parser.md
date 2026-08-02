@@ -23,7 +23,8 @@ The full parser performs these steps:
 1. classify the task as numerical, object reference, or instruction following;
 2. extract normalized, span-aware language features;
 3. assign a unique sentence-local ID to every entity mention;
-4. attach preceding colours and explicit cardinalities to the relevant entity;
+4. attach preceding colours, normalized size/shape/material attributes, and
+   explicit cardinalities to the relevant entity;
 5. bind descriptive spatial relations to subject and anchor entity IDs;
 6. distinguish descriptive `near`/`between` relations from route semantics;
 7. build ordered route steps and forbidden constraints;
@@ -55,7 +56,8 @@ become positive route steps.
 The degraded parser uses the same normalized evidence but relaxes binding:
 
 - it infers a likely task family when strict classification fails;
-- it retains every recognized entity, colour, and explicit cardinality;
+- it retains every recognized entity, colour, size/shape/material attribute,
+  and explicit cardinality;
 - it skips relations or forbidden constraints that cannot be attached safely;
 - for instructions, it uses the last recognized entity as a fallback terminal
   target and emits a minimal terminal step when necessary;

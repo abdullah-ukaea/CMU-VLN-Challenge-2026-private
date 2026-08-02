@@ -140,6 +140,34 @@ def test_extracts_colours_without_substring_false_positives(
     assert _normalized(extract_language_features(question).colours) == expected
 
 
+def test_extracts_and_normalizes_size_shape_and_material_attributes() -> None:
+    extraction = extract_language_features(
+        'Find the big circular wooden table beside the tiny metallic chair.'
+    )
+
+    assert [
+        (attribute.attribute_name, attribute.normalized)
+        for attribute in extraction.attributes
+    ] == [
+        ('size', 'large'),
+        ('shape', 'round'),
+        ('material', 'wood'),
+        ('size', 'small'),
+        ('material', 'metal'),
+    ]
+
+
+def test_attribute_matching_uses_word_boundaries() -> None:
+    extraction = extract_language_features(
+        'Find the glass door near the classroom wall.'
+    )
+
+    assert [
+        (attribute.attribute_name, attribute.normalized)
+        for attribute in extraction.attributes
+    ] == [('material', 'glass')]
+
+
 def test_extracts_explicit_cardinality_and_not_indefinite_articles() -> None:
     extraction = extract_language_features(
         'Take the path between the two columns and stop at a table.'

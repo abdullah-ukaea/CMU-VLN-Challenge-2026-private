@@ -175,6 +175,30 @@ def test_full_parser_binds_attributes_cardinality_and_between_relation() -> None
     ]
 
 
+def test_full_parser_binds_multiple_attributes_to_the_correct_entities() -> None:
+    task = parse_question_full(
+        'Find the large round wooden table beside the small metal chair.'
+    )
+    entities = {entity.class_name: entity for entity in task.entities}
+
+    assert entities['table'].attributes == {
+        'size': 'large',
+        'shape': 'round',
+        'material': 'wood',
+    }
+    assert entities['chair'].attributes == {
+        'size': 'small',
+        'material': 'metal',
+    }
+
+
+def test_degraded_parser_preserves_non_colour_attributes() -> None:
+    task = parse_question_degraded('Seek the tiny leather chair.')
+
+    chair = next(entity for entity in task.entities if entity.class_name == 'chair')
+    assert chair.attributes == {'size': 'small', 'material': 'leather'}
+
+
 def test_full_parser_resolves_pronoun_support_relation() -> None:
     task = parse_question_full(
         'Count the number of chairs with pillows on them.'
