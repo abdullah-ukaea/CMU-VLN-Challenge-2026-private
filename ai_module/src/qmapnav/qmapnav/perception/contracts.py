@@ -318,3 +318,30 @@ class Detection2D:
         object.__setattr__(self, 'centre_panorama_uv', centre_uv)
         object.__setattr__(self, 'centre_camera_ray', centre_ray)
         object.__setattr__(self, 'metadata', MappingProxyType(dict(self.metadata)))
+
+
+@dataclass(frozen=True)
+class PerceptionResult:
+    """Final worker output for one query-conditioned panorama keyframe."""
+
+    image_id: str
+    timestamp_ns: int
+    crop_count: int
+    raw_detections: tuple[Detection2D, ...]
+    detections: tuple[Detection2D, ...]
+
+    def __post_init__(self) -> None:
+        _non_empty('image_id', self.image_id)
+        if (
+            isinstance(self.timestamp_ns, bool)
+            or not isinstance(self.timestamp_ns, int)
+            or self.timestamp_ns < 0
+        ):
+            raise ValueError('timestamp_ns must be a non-negative integer')
+        _positive_int('crop_count', self.crop_count)
+        raw = tuple(self.raw_detections)
+        final = tuple(self.detections)
+        if not all(isinstance(item, Detection2D) for item in raw + final):
+            raise TypeError('perception outputs must contain Detection2D values')
+        object.__setattr__(self, 'raw_detections', raw)
+        object.__setattr__(self, 'detections', final)

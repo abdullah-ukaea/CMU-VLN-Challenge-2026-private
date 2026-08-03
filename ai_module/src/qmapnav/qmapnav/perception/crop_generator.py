@@ -5,6 +5,11 @@ from math import isfinite, pi
 
 import numpy as np
 
+try:
+    import cv2
+except ImportError:  # Keep geometry usable without detector-only dependencies.
+    cv2 = None
+
 from qmapnav.perception.contracts import PerspectiveGeometry
 from qmapnav.perception.contracts import PerspectiveView
 from qmapnav.perception.panorama_projection import camera_rays_to_panorama_pixels
@@ -218,6 +223,43 @@ def _bilinear_sample_wrap_horizontal(
     valid_mask: np.ndarray,
 ) -> np.ndarray:
     """Sample an image at continuous pixel-edge coordinates."""
+    if cv2 is not None:
+        try:
+            return _opencv_bilinear_sample(image, pixels_uv, valid_mask)
+        except cv2.error:
+            pass
+    return _numpy_bilinear_sample(image, pixels_uv, valid_mask)
+
+
+def _opencv_bilinear_sample(
+    image: np.ndarray,
+    pixels_uv: np.ndarray,
+    valid_mask: np.ndarray,
+) -> np.ndarray:
+    """Use optimized remapping with explicit horizontal seam padding."""
+    horizontally_wrapped = np.concatenate(
+        (image[:, -1:], image, image[:, :1]),
+        axis=1,
+    )
+    map_x = np.asarray(pixels_uv[..., 0] + 0.5, dtype=np.float32)
+    map_y = np.asarray(pixels_uv[..., 1] - 0.5, dtype=np.float32)
+    sampled = cv2.remap(
+        horizontally_wrapped,
+        map_x,
+        map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    sampled[~valid_mask] = 0
+    return sampled
+
+
+def _numpy_bilinear_sample(
+    image: np.ndarray,
+    pixels_uv: np.ndarray,
+    valid_mask: np.ndarray,
+) -> np.ndarray:
+    """Provide the dependency-free reference implementation."""
     height, width, _ = image.shape
     x = pixels_uv[..., 0] - 0.5
     y = pixels_uv[..., 1] - 0.5

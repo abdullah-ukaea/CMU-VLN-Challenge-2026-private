@@ -22,6 +22,22 @@ def panorama_box_area(box: PanoramaBox) -> float:
 
 def panorama_box_iou(first: PanoramaBox, second: PanoramaBox) -> float:
     """Compute IoU directly over one- or two-interval horizontal support."""
+    intersection = _panorama_box_intersection(first, second)
+    union = panorama_box_area(first) + panorama_box_area(second) - intersection
+    return 0.0 if union <= 0.0 else intersection / union
+
+
+def panorama_box_intersection_over_smaller(
+    first: PanoramaBox,
+    second: PanoramaBox,
+) -> float:
+    """Return intersection divided by the smaller box area."""
+    intersection = _panorama_box_intersection(first, second)
+    smaller = min(panorama_box_area(first), panorama_box_area(second))
+    return 0.0 if smaller <= 0.0 else intersection / smaller
+
+
+def _panorama_box_intersection(first: PanoramaBox, second: PanoramaBox) -> float:
     if (
         first.panorama_width != second.panorama_width
         or first.panorama_height != second.panorama_height
@@ -36,9 +52,7 @@ def panorama_box_iou(first: PanoramaBox, second: PanoramaBox) -> float:
         0.0,
         min(first.y_max, second.y_max) - max(first.y_min, second.y_min),
     )
-    intersection = horizontal_intersection * vertical_intersection
-    union = panorama_box_area(first) + panorama_box_area(second) - intersection
-    return 0.0 if union <= 0.0 else intersection / union
+    return horizontal_intersection * vertical_intersection
 
 
 def project_crop_detections(
@@ -93,10 +107,19 @@ def cross_crop_nms(
     detections: tuple[Detection2D, ...],
     *,
     iou_threshold: float = 0.4,
+    containment_threshold: float = 0.3,
+    same_crop_iou_threshold: float = 0.6,
+    same_crop_containment_threshold: float = 0.85,
 ) -> tuple[Detection2D, ...]:
-    """Greedily merge same-class detections from overlapping crops."""
-    if not 0.0 <= iou_threshold <= 1.0:
-        raise ValueError('iou_threshold must lie in [0, 1]')
+    """Merge duplicate boxes with stricter suppression inside one crop."""
+    if not 0.0 < iou_threshold <= 1.0:
+        raise ValueError('iou_threshold must lie in (0, 1]')
+    if not 0.0 < containment_threshold <= 1.0:
+        raise ValueError('containment_threshold must lie in (0, 1]')
+    if not 0.0 < same_crop_iou_threshold <= 1.0:
+        raise ValueError('same_crop_iou_threshold must lie in (0, 1]')
+    if not 0.0 < same_crop_containment_threshold <= 1.0:
+        raise ValueError('same_crop_containment_threshold must lie in (0, 1]')
     pending = sorted(
         detections,
         key=lambda item: (-item.confidence, item.detection_id),
@@ -109,21 +132,35 @@ def cross_crop_nms(
         representative = pending.pop(0)
         duplicates = []
         survivors = []
-        representative_crops = set(representative.crop_ids)
         for candidate in pending:
-            separate_crop = representative_crops.isdisjoint(candidate.crop_ids)
+            separate_crop = set(representative.crop_ids).isdisjoint(
+                candidate.crop_ids,
+            )
+            overlap = panorama_box_iou(
+                representative.panorama_box,
+                candidate.panorama_box,
+            )
+            containment = panorama_box_intersection_over_smaller(
+                representative.panorama_box,
+                candidate.panorama_box,
+            )
+            overlap_threshold = (
+                iou_threshold if separate_crop else same_crop_iou_threshold
+            )
+            containment_limit = (
+                containment_threshold
+                if separate_crop
+                else same_crop_containment_threshold
+            )
             duplicate = (
-                separate_crop
-                and candidate.class_name == representative.class_name
-                and panorama_box_iou(
-                    representative.panorama_box,
-                    candidate.panorama_box,
+                candidate.class_name == representative.class_name
+                and (
+                    overlap >= overlap_threshold
+                    or containment >= containment_limit
                 )
-                >= iou_threshold
             )
             if duplicate:
                 duplicates.append(candidate)
-                representative_crops.update(candidate.crop_ids)
             else:
                 survivors.append(candidate)
         pending = survivors
@@ -138,17 +175,14 @@ def _merge_with_representative(
     if not duplicates:
         return representative
     group = [representative, *duplicates]
-    crop_evidence = sorted(
-        (
-            (crop_id, crop_box)
-            for detection in group
-            for crop_id, crop_box in zip(
-                detection.crop_ids,
-                detection.crop_boxes_xyxy,
-            )
-        ),
-        key=lambda item: item[0],
-    )
+    crop_evidence_by_id = {}
+    for detection in group:
+        for crop_id, crop_box in zip(
+            detection.crop_ids,
+            detection.crop_boxes_xyxy,
+        ):
+            crop_evidence_by_id.setdefault(crop_id, crop_box)
+    crop_evidence = sorted(crop_evidence_by_id.items())
     weights = np.asarray(
         [max(detection.confidence, 1e-6) for detection in group],
         dtype=np.float64,

@@ -4,6 +4,7 @@ import numpy as np
 
 from qmapnav.perception import cross_crop_nms
 from qmapnav.perception import Detection2D
+from qmapnav.perception import panorama_box_intersection_over_smaller
 from qmapnav.perception import panorama_box_iou
 from qmapnav.perception import PanoramaBox
 
@@ -50,6 +51,16 @@ def test_seam_aware_iou_matches_split_intervals() -> None:
     second = _box(((0.0, 8.0), (92.0, 100.0)))
 
     assert panorama_box_iou(first, second) == 0.8
+    assert panorama_box_intersection_over_smaller(first, second) == 1.0
+
+
+def test_nested_boxes_merge_when_iou_is_low_but_containment_is_high() -> None:
+    large = _detection('large', 0, _box(((10.0, 40.0),)), 0.9)
+    small = _detection('small', 1, _box(((15.0, 25.0),)), 0.8)
+
+    result = cross_crop_nms((large, small), iou_threshold=0.4)
+
+    assert len(result) == 1
 
 
 def test_same_class_overlap_from_two_crops_merges_and_preserves_sources() -> None:
@@ -101,8 +112,15 @@ def test_nearby_distinct_objects_and_different_classes_do_not_merge() -> None:
     assert len(cross_crop_nms((first, nearby, other_class), iou_threshold=0.4)) == 3
 
 
-def test_same_crop_detections_are_not_cross_crop_suppressed() -> None:
+def test_strong_same_crop_duplicates_are_suppressed() -> None:
     first = _detection('first', 2, _box(((10.0, 30.0),)), 0.9)
     second = _detection('second', 2, _box(((10.0, 30.0),)), 0.8)
+
+    assert len(cross_crop_nms((first, second))) == 1
+
+
+def test_nearby_same_crop_detections_remain_distinct() -> None:
+    first = _detection('first', 2, _box(((10.0, 24.0),)), 0.9)
+    second = _detection('second', 2, _box(((21.0, 35.0),)), 0.8)
 
     assert len(cross_crop_nms((first, second))) == 2
