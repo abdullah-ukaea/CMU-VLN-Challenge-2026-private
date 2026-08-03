@@ -58,7 +58,36 @@ def test_node_uses_only_permitted_official_topics(node: object) -> None:
     assert node._question_subscription.topic_name == '/challenge_question'
     assert node._pose_subscription.topic_name == '/state_estimation'
     assert node._scan_subscription.topic_name == '/registered_scan'
+    assert node._image_subscription.topic_name == '/camera/image'
     assert node._waypoint_publisher.topic_name == '/way_point_with_heading'
+
+
+@pytest.mark.parametrize('encoding', ['rgb8', 'bgr8'])
+def test_camera_image_decoder_handles_row_padding_and_channel_order(
+    encoding: str,
+) -> None:
+    from qmapnav.mission.node import _decode_image_rgb
+    from sensor_msgs.msg import Image
+
+    message = Image()
+    message.height = 2
+    message.width = 2
+    message.encoding = encoding
+    message.step = 8
+    first_pixel = [1, 2, 3] if encoding == 'rgb8' else [3, 2, 1]
+    message.data = bytes(
+        first_pixel + [4, 5, 6, 99, 99]
+        + [7, 8, 9, 10, 11, 12, 99, 99]
+    )
+
+    decoded = _decode_image_rgb(message)
+
+    assert decoded.shape == (2, 2, 3)
+    assert decoded[0, 0].tolist() == [1, 2, 3]
+    if encoding == 'rgb8':
+        assert decoded[1, 1].tolist() == [10, 11, 12]
+    else:
+        assert decoded[1, 1].tolist() == [12, 11, 10]
 
 
 def test_node_parses_first_question_and_ignores_repeated_publications() -> None:

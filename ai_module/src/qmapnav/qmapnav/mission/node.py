@@ -1,21 +1,47 @@
 """ROS 2 composition root for Q-MapNav."""
 
+from collections import deque
 from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import asdict
 from math import atan2
+from pathlib import Path
+from threading import RLock
 
+import cv2
 from geometry_msgs.msg import Pose2D
 from nav_msgs.msg import Odometry
+import numpy as np
 from qmapnav.common import TaskSpecification
 from qmapnav.evaluation import DecisionTraceEvent
 from qmapnav.evaluation import JsonlDecisionTraceRecorder
 from qmapnav.evaluation import TraceRecorder
 from qmapnav.language import parse_question
 from qmapnav.mapping import AccumulationStatus
+from qmapnav.mapping import AssociationConfig
+from qmapnav.mapping import AssociationFailure
+from qmapnav.mapping import BoundedProjectionWorker
+from qmapnav.mapping import Day5ProjectionPipeline
+from qmapnav.mapping import DenseRegisteredScanAccumulator
+from qmapnav.mapping import DenseScanAccumulatorConfig
+from qmapnav.mapping import ProjectionConfig
+from qmapnav.mapping import ProjectionFrame
+from qmapnav.mapping import ProjectionQualityConfig
+from qmapnav.mapping import ProjectionSynchronizer
 from qmapnav.mapping import RegisteredScanAccumulator
 from qmapnav.mapping import ScanAccumulatorConfig
-from qmapnav.mapping.point_cloud import decode_xyz_points
+from qmapnav.mapping import TimedPanorama
+from qmapnav.mapping import TimedPose
+from qmapnav.mapping import TimedRegisteredScan
+from qmapnav.mapping.point_cloud import decode_scan_arrays
+from qmapnav.mapping.point_cloud import ScanArrays
+from qmapnav.mapping.point_cloud import stamp_to_nanoseconds
+from qmapnav.mapping.projection_regression import save_projection_regression_case
+from qmapnav.mapping.projection_visualisation import draw_detection_projection_overlay
+from qmapnav.mapping.projection_visualisation import draw_projection_overlay
+from qmapnav.mapping.projection_visualisation import draw_top_down_projection
+from qmapnav.mapping.transforms import make_transform
+from qmapnav.mapping.transforms import quaternion_xyzw_to_rotation
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
 from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
@@ -27,9 +53,15 @@ from qmapnav.navigation import ExecutorEvent
 from qmapnav.navigation import ExecutorEventType
 from qmapnav.navigation import SequentialWaypointExecutor
 from qmapnav.navigation import Waypoint2D
+from qmapnav.perception.baseline import make_day4_baseline_worker
+from qmapnav.perception.contracts import PerceptionRequest
+from qmapnav.perception.panorama_projection import PanoramaCameraModel
+from qmapnav.perception.vocabulary import detector_classes_from_task_specification
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
@@ -42,8 +74,10 @@ class QMapNavNode(Node):
         question_parser: Callable[[str], TaskSpecification] = parse_question,
         *,
         scan_accumulator: RegisteredScanAccumulator | None = None,
+        projection_pipeline: Day5ProjectionPipeline | None = None,
+        perception_worker: object | None = None,
         trace_recorder: TraceRecorder | None = None,
-        point_cloud_decoder: Callable[[object], object] = decode_xyz_points,
+        point_cloud_decoder: Callable[[object], object] = decode_scan_arrays,
         parameter_overrides: list[Parameter] | None = None,
     ) -> None:
         super().__init__(
@@ -69,12 +103,22 @@ class QMapNavNode(Node):
             self.get_parameter('recovery_clearance').value
         )
         self._latest_pose_xy: tuple[float, float] | None = None
+        self._latest_timed_pose: TimedPose | None = None
         self._last_traced_scan_count = 0
         self._trace_closed = False
+        self._projection_lock = RLock()
+        self._latest_projection_frame: ProjectionFrame | None = None
+        self._perception_worker = perception_worker
+        self._processed_image_ids: deque[str] = deque(maxlen=128)
+        self._processed_image_id_set: set[str] = set()
+        self._saved_projection_count = 0
 
         self._question_latch = QuestionLatch()
         self._task_specification: TaskSpecification | None = None
         self._scan_accumulator = scan_accumulator or self._create_accumulator()
+        self._projection_pipeline = (
+            projection_pipeline or self._create_projection_pipeline()
+        )
         self._trace_recorder = trace_recorder or self._create_trace_recorder()
         self._waypoint_executor = SequentialWaypointExecutor(
             arrival_radius=float(self.get_parameter('arrival_radius').value),
@@ -112,6 +156,12 @@ class QMapNavNode(Node):
             self._on_registered_scan,
             5,
         )
+        self._image_subscription = self.create_subscription(
+            Image,
+            '/camera/image',
+            self._on_image,
+            5,
+        )
         self._waypoint_publisher = self.create_publisher(
             Pose2D,
             '/way_point_with_heading',
@@ -123,7 +173,7 @@ class QMapNavNode(Node):
         )
         self._trace(
             event='node_initialized',
-            selection_reason='day_2_runtime_ready',
+            selection_reason='day_5_runtime_ready',
             details={
                 'executor': {
                     'arrival_radius': self._waypoint_executor.arrival_radius,
@@ -141,7 +191,17 @@ class QMapNavNode(Node):
                     ),
                 },
                 'accumulator': asdict(self._scan_accumulator.config),
+                'dense_accumulator': asdict(
+                    self._projection_pipeline.dense_accumulator.config
+                ),
             },
+        )
+        self._projection_worker = BoundedProjectionWorker(
+            self._process_panorama,
+            self._on_projection_result,
+            max_queue_size=int(
+                self.get_parameter('projection_worker_queue_size').value
+            ),
         )
         self.get_logger().info('Q-MapNav node initialized')
 
@@ -165,6 +225,12 @@ class QMapNavNode(Node):
         """Expose the bounded persistent registered-scan map."""
         return self._scan_accumulator
 
+    @property
+    def latest_projection_frame(self) -> ProjectionFrame | None:
+        """Return the latest immutable Day 5 projection result."""
+        with self._projection_lock:
+            return self._latest_projection_frame
+
     def start_route(self, route: Iterable[Waypoint2D]) -> None:
         """Start a route and publish exactly its first active waypoint."""
         if self._expire_episode_if_needed():
@@ -182,6 +248,12 @@ class QMapNavNode(Node):
 
     def destroy_node(self) -> None:
         """Perform bounded trace shutdown before destroying ROS entities."""
+        projection_worker = getattr(self, '_projection_worker', None)
+        if projection_worker is not None:
+            if not projection_worker.close(
+                float(self.get_parameter('projection_shutdown_timeout').value)
+            ):
+                self.get_logger().warning('Projection worker did not stop in time')
         if not self._trace_closed:
             self._trace(
                 event='node_shutdown',
@@ -265,6 +337,30 @@ class QMapNavNode(Node):
             1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2),
         )
         self._latest_pose_xy = (position.x, position.y)
+        try:
+            if message.header.frame_id and message.child_frame_id:
+                self._latest_timed_pose = TimedPose(
+                    timestamp_ns=stamp_to_nanoseconds(message.header.stamp),
+                    parent_frame_id=message.header.frame_id,
+                    child_frame_id=message.child_frame_id,
+                    position_xyz=np.array(
+                        [position.x, position.y, position.z],
+                        dtype=np.float64,
+                    ),
+                    orientation_xyzw=np.array(
+                        [
+                            orientation.x,
+                            orientation.y,
+                            orientation.z,
+                            orientation.w,
+                        ],
+                        dtype=np.float64,
+                    ),
+                    receipt_timestamp_ns=self.get_clock().now().nanoseconds,
+                )
+                self._projection_pipeline.add_pose(self._latest_timed_pose)
+        except ValueError as error:
+            self.get_logger().warning(f'Rejected projection pose: {error}')
         next_goal = self._waypoint_executor.update_pose(
             position.x,
             position.y,
@@ -287,11 +383,18 @@ class QMapNavNode(Node):
         if self._expire_episode_if_needed():
             return
         try:
-            points = self._point_cloud_decoder(message)
+            decoded = self._point_cloud_decoder(message)
+            if isinstance(decoded, ScanArrays):
+                points = decoded.xyz
+                intensity = decoded.intensity
+            else:
+                points = np.asarray(decoded, dtype=np.float64)
+                intensity = None
+            source_timestamp_ns = stamp_to_nanoseconds(message.header.stamp)
             result = self._scan_accumulator.add_scan(
                 points,
                 frame_id=message.header.frame_id,
-                timestamp=self._now(),
+                timestamp=source_timestamp_ns / 1_000_000_000.0,
                 sensor_origin_xy=self._latest_pose_xy,
             )
         except (TypeError, ValueError) as error:
@@ -303,6 +406,32 @@ class QMapNavNode(Node):
                 details={'error': str(error)},
             )
             return
+
+        if result.status in {
+            AccumulationStatus.ACCEPTED,
+            AccumulationStatus.EMPTY,
+        }:
+            try:
+                timed_scan = TimedRegisteredScan(
+                    timestamp_ns=source_timestamp_ns,
+                    frame_id=message.header.frame_id,
+                    points_xyz=points,
+                    intensity=intensity,
+                    receipt_timestamp_ns=self.get_clock().now().nanoseconds,
+                )
+                sensor_origin = (
+                    self._latest_timed_pose.position_xyz
+                    if self._latest_timed_pose is not None
+                    else None
+                )
+                self._projection_pipeline.add_scan(
+                    timed_scan,
+                    sensor_origin_xyz=sensor_origin,
+                )
+            except ValueError as error:
+                self.get_logger().warning(
+                    f'Rejected scan from Day 5 projection path: {error}'
+                )
 
         if result.status in {
             AccumulationStatus.REJECTED_FRAME,
@@ -340,6 +469,159 @@ class QMapNavNode(Node):
                     'stats': asdict(stats),
                 },
             )
+
+    def _on_image(self, message: Image) -> None:
+        if self._expire_episode_if_needed():
+            return
+        try:
+            timestamp_ns = stamp_to_nanoseconds(message.header.stamp)
+            if not message.header.frame_id:
+                raise ValueError('camera image frame_id is empty')
+            image_rgb = _decode_image_rgb(message)
+            image_id = f'{timestamp_ns}'
+            if image_id in self._processed_image_id_set:
+                return
+            if len(self._processed_image_ids) == self._processed_image_ids.maxlen:
+                removed = self._processed_image_ids.popleft()
+                self._processed_image_id_set.discard(removed)
+            self._processed_image_ids.append(image_id)
+            self._processed_image_id_set.add(image_id)
+            panorama = TimedPanorama(
+                image_id=image_id,
+                timestamp_ns=timestamp_ns,
+                frame_id=message.header.frame_id,
+                image_rgb=image_rgb,
+                receipt_timestamp_ns=self.get_clock().now().nanoseconds,
+            )
+            self._projection_worker.submit(panorama)
+        except (TypeError, ValueError) as error:
+            self.get_logger().warning(f'Rejected camera image: {error}')
+            self._trace(
+                event='camera_image_rejected',
+                selected_action='ignore_image',
+                selection_reason='malformed_image',
+                details={'error': str(error)},
+            )
+
+    def _process_panorama(
+        self,
+        panorama: TimedPanorama,
+    ) -> ProjectionFrame | AssociationFailure:
+        detections = ()
+        if self._perception_worker is not None and self._task_specification is not None:
+            request = PerceptionRequest(
+                image_id=panorama.image_id,
+                timestamp_ns=panorama.timestamp_ns,
+                panorama_rgb=panorama.image_rgb,
+                detector_classes=detector_classes_from_task_specification(
+                    self._task_specification
+                ),
+                task_type=self._task_specification.task_type,
+            )
+            detections = self._perception_worker.process(request).detections
+        return self._projection_pipeline.process(panorama, detections)
+
+    def _on_projection_result(
+        self,
+        result: ProjectionFrame | AssociationFailure,
+    ) -> None:
+        if isinstance(result, AssociationFailure):
+            self._trace(
+                event='projection_skipped',
+                selected_action='skip_keyframe',
+                selection_reason=result.reason,
+                details={
+                    'image_id': result.panorama.image_id,
+                    'image_timestamp_ns': result.panorama.timestamp_ns,
+                },
+            )
+            return
+        with self._projection_lock:
+            self._latest_projection_frame = result
+        self._trace(
+            event='projection_completed',
+            selected_action='retain_projection',
+            selection_reason='valid_time_and_frame_association',
+            details={
+                'image_id': result.panorama.image_id,
+                'current': asdict(result.current.diagnostics),
+                'accumulated': asdict(result.accumulated.diagnostics),
+                'dense_stats': asdict(
+                    self._projection_pipeline.dense_accumulator.stats()
+                ),
+                'worker': self._projection_worker.stats(),
+            },
+        )
+        self._save_projection_debug(result)
+
+    def _save_projection_debug(self, result: ProjectionFrame) -> None:
+        output_value = str(self.get_parameter('projection_debug_directory').value)
+        max_saved = int(self.get_parameter('projection_max_saved_frames').value)
+        if not output_value or self._saved_projection_count >= max_saved:
+            return
+        output = Path(output_value) / result.panorama.image_id
+        output.mkdir(parents=True, exist_ok=True)
+        images = {
+            'current.png': draw_projection_overlay(
+                result.panorama.image_rgb,
+                result.current,
+            ),
+            'accumulated.png': draw_projection_overlay(
+                result.panorama.image_rgb,
+                result.accumulated,
+            ),
+            'detections.png': draw_detection_projection_overlay(
+                result.panorama.image_rgb,
+                result.current,
+                result.detections,
+                result.current_detection_support,
+            ),
+        }
+        orientation = result.association.pose.orientation_xyzw
+        heading = atan2(
+            2.0 * (
+                orientation[3] * orientation[2]
+                + orientation[0] * orientation[1]
+            ),
+            1.0 - 2.0 * (orientation[1] ** 2 + orientation[2] ** 2),
+        )
+        images['top_down.png'] = draw_top_down_projection(
+            result.association.scan.points_xyz,
+            result.accumulated_snapshot.points_xyz,
+            result.association.pose.position_xyz,
+            heading,
+        )
+        for filename, image_rgb in images.items():
+            if not cv2.imwrite(
+                str(output / filename),
+                np.ascontiguousarray(image_rgb[..., ::-1]),
+            ):
+                raise RuntimeError(f'failed to save projection debug image {filename}')
+        regression_category = str(
+            self.get_parameter('projection_regression_category').value
+        )
+        if regression_category:
+            save_projection_regression_case(
+                output,
+                category=regression_category,
+                scene_id=str(
+                    self.get_parameter('projection_regression_scene_id').value
+                ),
+                pose_id=str(
+                    self.get_parameter('projection_regression_pose_id').value
+                ),
+                frame=result,
+                transform_sensor_from_camera_optical=(
+                    self._projection_pipeline.transform_sensor_from_camera_optical
+                ),
+                panorama_model=self._projection_pipeline.panorama_model,
+                projection_config=self._projection_pipeline.projection_config,
+                overlay_rgb=images['current.png'],
+                notes=str(
+                    self.get_parameter('projection_regression_notes').value
+                ),
+            )
+        self._saved_projection_count += 1
 
     def _select_safe_offset(
         self,
@@ -491,6 +773,91 @@ class QMapNavNode(Node):
             )
         )
 
+    def _create_projection_pipeline(self) -> Day5ProjectionPipeline:
+        translation = np.asarray(
+            self.get_parameter('camera_translation_sensor_xyz').value,
+            dtype=np.float64,
+        )
+        quaternion = np.asarray(
+            self.get_parameter('camera_orientation_sensor_xyzw').value,
+            dtype=np.float64,
+        )
+        transform_sensor_from_camera = make_transform(
+            quaternion_xyzw_to_rotation(quaternion),
+            translation,
+        )
+        association = AssociationConfig(
+            max_pose_delta_ns=int(
+                float(self.get_parameter('projection_max_pose_delta_ms').value)
+                * 1_000_000
+            ),
+            max_scan_delta_ns=int(
+                float(self.get_parameter('projection_max_scan_delta_ms').value)
+                * 1_000_000
+            ),
+            buffer_duration_ns=int(
+                float(self.get_parameter('projection_buffer_seconds').value)
+                * 1_000_000_000
+            ),
+            max_pose_items=int(
+                self.get_parameter('projection_max_pose_items').value
+            ),
+            max_scan_items=int(
+                self.get_parameter('projection_max_scan_items').value
+            ),
+        )
+        dense_config = DenseScanAccumulatorConfig(
+            frame_id=str(self.get_parameter('scan_frame').value),
+            voxel_size_m=float(
+                self.get_parameter('dense_scan_voxel_size').value
+            ),
+            max_age_seconds=float(
+                self.get_parameter('dense_scan_max_age_seconds').value
+            ),
+            max_radius_m=float(
+                self.get_parameter('dense_scan_max_radius').value
+            ),
+            max_points=int(self.get_parameter('dense_scan_max_points').value),
+        )
+        projection_config = ProjectionConfig(
+            expected_scan_frame=str(self.get_parameter('scan_frame').value),
+            expected_pose_parent_frame=str(
+                self.get_parameter('pose_parent_frame').value
+            ),
+            expected_pose_child_frame=str(
+                self.get_parameter('pose_child_frame').value
+            ),
+            min_range_m=float(
+                self.get_parameter('projection_min_range').value
+            ),
+            max_range_m=float(
+                self.get_parameter('projection_max_range').value
+            ),
+            timing_warning_ms=float(
+                self.get_parameter('projection_timing_warning_ms').value
+            ),
+        )
+        quality_config = ProjectionQualityConfig(
+            sparse_point_threshold=int(
+                self.get_parameter('projection_sparse_point_threshold').value
+            ),
+            high_depth_iqr_m=float(
+                self.get_parameter('projection_high_depth_iqr').value
+            ),
+            timing_warning_ms=projection_config.timing_warning_ms,
+        )
+        return Day5ProjectionPipeline(
+            synchronizer=ProjectionSynchronizer(association),
+            dense_accumulator=DenseRegisteredScanAccumulator(dense_config),
+            transform_sensor_from_camera_optical=transform_sensor_from_camera,
+            panorama_model=PanoramaCameraModel(
+                int(self.get_parameter('panorama_width').value),
+                int(self.get_parameter('panorama_height').value),
+            ),
+            projection_config=projection_config,
+            quality_config=quality_config,
+        )
+
     def _expire_episode_if_needed(self) -> bool:
         if self._elapsed() < self._episode_time_limit:
             return False
@@ -531,6 +898,40 @@ class QMapNavNode(Node):
         self.declare_parameter('scan_max_age_seconds', 120.0)
         self.declare_parameter('scan_max_voxels', 200_000)
         self.declare_parameter('scan_max_views', 16)
+        self.declare_parameter('pose_parent_frame', 'map')
+        self.declare_parameter('pose_child_frame', 'sensor')
+        self.declare_parameter('panorama_width', 1920)
+        self.declare_parameter('panorama_height', 640)
+        self.declare_parameter('camera_translation_sensor_xyz', [0.0, 0.0, 0.1])
+        self.declare_parameter(
+            'camera_orientation_sensor_xyzw',
+            [-0.5, 0.5, -0.5, 0.5],
+        )
+        self.declare_parameter('projection_max_pose_delta_ms', 50.0)
+        self.declare_parameter('projection_max_scan_delta_ms', 150.0)
+        self.declare_parameter('projection_buffer_seconds', 5.0)
+        self.declare_parameter('projection_max_pose_items', 2_000)
+        self.declare_parameter('projection_max_scan_items', 64)
+        self.declare_parameter('projection_min_range', 0.30)
+        self.declare_parameter('projection_max_range', 30.0)
+        self.declare_parameter('projection_timing_warning_ms', 100.0)
+        self.declare_parameter('projection_sparse_point_threshold', 8)
+        self.declare_parameter('projection_high_depth_iqr', 2.0)
+        self.declare_parameter('dense_scan_voxel_size', 0.04)
+        self.declare_parameter('dense_scan_max_age_seconds', 15.0)
+        self.declare_parameter('dense_scan_max_radius', 12.0)
+        self.declare_parameter('dense_scan_max_points', 1_000_000)
+        self.declare_parameter('projection_worker_queue_size', 2)
+        self.declare_parameter('projection_shutdown_timeout', 2.0)
+        self.declare_parameter('projection_debug_directory', '')
+        self.declare_parameter('projection_max_saved_frames', 5)
+        self.declare_parameter('projection_regression_category', '')
+        self.declare_parameter('projection_regression_scene_id', 'unknown')
+        self.declare_parameter('projection_regression_pose_id', 'unknown')
+        self.declare_parameter(
+            'projection_regression_notes',
+            'Live Day 5 camera-LiDAR alignment regression.',
+        )
         self.declare_parameter(
             'trace_path', '/tmp/qmapnav/decision_trace.jsonl'
         )
@@ -551,14 +952,36 @@ class QMapNavNode(Node):
         return None
 
 
+def _decode_image_rgb(message: Image) -> np.ndarray:
+    """Decode contiguous/padded RGB8 or BGR8 ROS images without CvBridge."""
+    if message.encoding not in {'rgb8', 'bgr8'}:
+        raise ValueError(f'unsupported camera encoding {message.encoding!r}')
+    if message.height < 2 or message.width < 2:
+        raise ValueError('camera image dimensions must be at least 2 x 2')
+    minimum_step = message.width * 3
+    if message.step < minimum_step:
+        raise ValueError('camera image step is smaller than packed RGB data')
+    data = np.frombuffer(message.data, dtype=np.uint8)
+    expected_size = message.height * message.step
+    if data.size != expected_size:
+        raise ValueError('camera image data size does not match height and step')
+    rows = data.reshape((message.height, message.step))
+    image = rows[:, :minimum_step].reshape((message.height, message.width, 3))
+    if message.encoding == 'bgr8':
+        image = image[..., ::-1]
+    return np.ascontiguousarray(image)
+
+
 def main(args: list[str] | None = None) -> None:
     """Run the Q-MapNav ROS node until shutdown."""
     rclpy.init(args=args)
-    node = QMapNavNode()
+    node = QMapNavNode(
+        perception_worker=make_day4_baseline_worker(1920, 640),
+    )
 
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
