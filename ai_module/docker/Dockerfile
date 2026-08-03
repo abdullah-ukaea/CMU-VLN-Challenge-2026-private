@@ -21,6 +21,12 @@ RUN python3 -m pip install \
       --no-cache-dir \
       -r /tmp/qmapnav-requirements-detectors.txt
 
+# The measured Day 4 winner must not download weights during an episode.
+# Keep both its visual checkpoint and prompt encoder in a fixed image path.
+RUN mkdir -p /home/docker/models
+WORKDIR /home/docker/models
+RUN python3 -c "from ultralytics.utils.downloads import attempt_download_asset; attempt_download_asset('yoloe-11s-seg.pt'); attempt_download_asset('mobileclip_blt.ts')"
+
 USER docker
 
 # Copy the competition AI workspace into the existing ROS 2 workspace.
