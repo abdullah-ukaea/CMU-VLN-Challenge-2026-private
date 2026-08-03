@@ -88,8 +88,10 @@ regression commands are documented in
 [`docs/evaluation.md`](docs/evaluation.md).
 
 The Day 4 panorama/camera-ray convention, overlapping perspective layout, and
-bounded two-candidate detector interface are documented in
+seam-aware perception worker are documented in
 [`docs/perception.md`](docs/perception.md).
+The measured two-candidate bake-off and selected YOLOE baseline are recorded in
+[`docs/day_4_detector_decision.md`](docs/day_4_detector_decision.md).
 
 ## Build
 

@@ -1,10 +1,10 @@
 # Panoramic Perception Geometry
 
 Day 4 introduces a ROS-independent front end for the challenge's cropped
-equirectangular camera image. This document covers only perspective tiling,
-retained coordinate transforms, and the bounded two-candidate detector smoke
-harness. Cross-crop merging, scored detector selection, 3D lifting, and the
-perception worker are intentionally not part of this implementation increment.
+equirectangular camera image. It covers perspective tiling, retained coordinate
+transforms, the bounded two-candidate detector bake-off, seam-aware duplicate
+merging, and the detector-independent perception worker. It deliberately stops
+before camera-LiDAR projection and all 3D object processing.
 
 ## Image and camera convention
 
@@ -52,8 +52,10 @@ configurable.
 
 `PerspectiveCropGenerator` inverse-maps crop pixel centres to camera rays and
 then panorama pixels. It caches the image-independent maps, samples the source
-with bilinear interpolation, wraps horizontally, and masks rays outside the
-configured vertical span.
+with OpenCV's optimized bilinear remap, wraps horizontally, and masks rays
+outside the configured vertical span. A NumPy reference sampler remains as a
+dependency-free fallback. The production sampler measured 71 ms median for all
+eight views on the development machine.
 
 ## Retained transformations
 
@@ -75,7 +77,7 @@ seam without inflating it to almost the full panorama width. Detection centre
 rays are calculated directly from crop geometry, never by averaging wrapped
 panorama columns.
 
-## Detector candidate boundary
+## Detector boundary and selected baseline
 
 The bake-off is hard-limited by `TwoCandidateDetectorBenchmark` to one or two
 candidates. The only candidates wired for Day 4 are:
@@ -90,16 +92,65 @@ only normalized `CropDetection` values. They load once, reuse the model across
 all crops, convert aliases back to canonical Day 2 names, and retain the
 effective prompt. Detector-specific tensors do not leave the adapters.
 
-`tools/day4_detector_smoke.py` is deliberately prediction-only. It runs one
-candidate on the same eight views and saves raw crop boxes, wrap-aware panorama
-envelopes, and normalized centre rays. It does not perform NMS, calculate
-recall or false-positive metrics, measure latency/VRAM, or select a winner.
-Those activities remain pending until a manually verified benchmark set is
-assigned.
+The measured winner is compact YOLOE at confidence `0.20`, FP16, and input size
+`640 x 640`. `perception/baseline.py` contains the frozen Day 4 constants and
+worker factory. GroundingDINO remains only as the measured second adapter.
 
-Model weights are kept in the local development cache rather than committed to
-the repository. The YOLOE text encoder and both checkpoints must be packaged
-with the final offline image during the later qualification step.
+The full threshold and resource results are recorded in
+`docs/day_4_detector_decision.md`. `tools/run_day4_detector_benchmark.py`
+measures both original and horizontally rolled panoramas, including target,
+anchor, rare, and small recall, false positives, cold/warm latency, component
+timings, VRAM, seam recall, and seam duplicate excess.
+
+Model weights are not committed to the repository. The Docker build downloads
+the selected YOLOE checkpoint and MobileCLIP prompt encoder into
+`/home/docker/models`; runtime adapters resolve both there and do not require
+internet access. GroundingDINO weights are benchmark-only and are not packaged
+in the selected runtime image.
+
+## Seam-aware merging
+
+Every crop detection is projected into a common `PanoramaBox`. Horizontal
+support is represented as one interval or two intervals meeting opposite image
+edges, so IoU remains meaningful at `u=0/W`.
+
+The merge policy compares only canonical classes. Cross-crop fragments merge
+at panorama IoU `0.40` or intersection-over-smaller `0.30`; strict same-crop
+suppression uses `0.60/0.85`. The highest-confidence detection supplies the
+reported envelope and score. All source crop IDs and boxes are retained,
+centre rays are confidence-averaged in 3D, and panorama `u` values are never
+averaged linearly across the seam.
+
+The deliberate original/rolled audit at the selected threshold detects three
+of four seam-positioned objects and produces zero duplicate excess boxes. The
+missed fourth object is a detector miss rather than a wrap or merge failure.
+
+## Perception worker
+
+`PerceptionWorker` owns only this flow:
+
+```text
+PerceptionRequest
+  -> cached perspective crops
+  -> selected detector
+  -> crop-to-panorama projection
+  -> seam-aware merge
+  -> PerceptionResult with raw and clean Detection2D tuples
+```
+
+`detector_classes_from_task_specification()` turns the Day 2 parse into a
+deduplicated query-conditioned vocabulary. The worker does not perform 3D
+lifting, fusion, relations, colours, planning, or keyframe policy.
+
+`tools/day4_perception_integration.py` exercises the selected worker using a
+real parsed question and writes only detector-independent JSON.
+
+## Debug outputs
+
+Each benchmark saves crop layout, crop contact sheet, panorama detections
+before NMS, panorama detections after NMS, and a JSON trace containing panorama
+boxes, centre pixels, normalized camera rays, crop IDs, and merge flags. Both
+the original Office 1 panorama and its rolled seam variant are saved.
 
 ## Focused tests
 
@@ -107,10 +158,17 @@ with the final offline image during the later qualification step.
 pytest -q \
   test/test_panorama_projection.py \
   test/test_crop_generator.py \
-  test/test_detector_benchmark.py
+  test/test_detector_benchmark.py \
+  test/test_cross_crop_nms.py \
+  test/test_detector_dataset.py \
+  test/test_detector_metrics.py \
+  test/test_perception_worker.py \
+  test/test_visualisation.py
 ```
 
 The tests cover the 120-degree vertical model, horizontal wrap, crop/panorama
 round trips, camera-ray normalization, seam-safe box projection, dense yaw
 coverage, 25-percent overlap, deterministic crop generation, vertical masks,
-adapter-output validation, and the two-candidate ceiling.
+adapter-output validation, the two-candidate ceiling, wrap-aware IoU,
+duplicate/distinct-object behavior, metric matching, manifest validation,
+parsed-task vocabulary, worker output, and debug artifacts.
