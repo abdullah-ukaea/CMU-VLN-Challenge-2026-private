@@ -9,9 +9,10 @@ registered-scan accumulation, and observational decision tracing.
 
 Day 3 development infrastructure adds validated adapters for released
 questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
-reference trajectories, and answer evidence. The oracle layer now resolves
-counts and object references and plans ordered semantic routes from perfect
-objects. Proxy evaluation remains a separate, later task.
+reference trajectories, and answer evidence. The oracle layer resolves counts
+and object references and plans ordered semantic routes from perfect objects.
+The evaluation harness measures answer, relation, route, and timing proxies in
+quick or full regression modes without fabricating missing answer labels.
 
 ## Package Structure
 
@@ -82,6 +83,10 @@ Perfect-object candidate reasoning, semantic floor geometry, and the oracle
 grid route planner are documented in
 [`docs/oracle_reasoning.md`](docs/oracle_reasoning.md).
 
+Proxy metric definitions, answer-provenance policy, report files, and quick/full
+regression commands are documented in
+[`docs/evaluation.md`](docs/evaluation.md).
+
 ## Build
 
 From `/home/docker/ai_module` in the AI container:
@@ -106,4 +111,13 @@ will be added behind the frozen module boundaries in their scheduled tasks.
 ```bash
 colcon test --packages-select qmapnav
 colcon test-result --verbose
+```
+
+## Oracle Regression
+
+With the released scene and VLA-3D metadata available in the workspace:
+
+```bash
+ros2 run qmapnav qmapnav_benchmark --mode quick
+ros2 run qmapnav qmapnav_benchmark --mode full
 ```

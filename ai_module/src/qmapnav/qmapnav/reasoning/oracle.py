@@ -320,6 +320,25 @@ def _geometric_relation_holds(
     return False
 
 
+def geometric_relation_holds(
+    relation: str,
+    subject: OracleObject,
+    anchors: tuple[OracleObject, ...],
+) -> bool:
+    """Evaluate one supported relation using only deterministic OBB geometry."""
+    normalized = _HARD_RELATION_ALIASES.get(relation, relation)
+    expected_arity = 2 if normalized == 'between' else 1
+    if normalized not in set(_HARD_RELATION_ALIASES.values()):
+        raise OracleReasoningError(
+            f'geometric predicate does not support relation {relation!r}'
+        )
+    if len(anchors) != expected_arity:
+        raise OracleReasoningError(
+            f'{normalized} geometry requires {expected_arity} anchor(s)'
+        )
+    return _geometric_relation_holds(normalized, subject, tuple(anchors))
+
+
 def _candidate_anchor_tuples(
     relation: str,
     anchor_sets: list[set[str]],
@@ -662,6 +681,7 @@ __all__ = [
     'NumericalResult',
     'ObjectReferenceResult',
     'OracleReasoningError',
+    'geometric_relation_holds',
     'resolve_task_entities',
     'solve_numerical',
     'solve_object_reference',

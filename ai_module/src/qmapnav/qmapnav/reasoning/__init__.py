@@ -2,6 +2,7 @@
 
 from qmapnav.reasoning.oracle import CandidateDecision
 from qmapnav.reasoning.oracle import EntityResolution
+from qmapnav.reasoning.oracle import geometric_relation_holds
 from qmapnav.reasoning.oracle import NumericalResult
 from qmapnav.reasoning.oracle import ObjectReferenceResult
 from qmapnav.reasoning.oracle import OracleReasoningError
@@ -28,6 +29,7 @@ __all__ = [
     'CandidateDecision',
     'EntityResolution',
     'GateResult',
+    'geometric_relation_holds',
     'NumericalResult',
     'ObjectReferenceResult',
     'OraclePlannerConfig',

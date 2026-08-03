@@ -20,6 +20,20 @@ from qmapnav.evaluation.ground_truth import OracleRelation
 from qmapnav.evaluation.ground_truth import OracleScene
 from qmapnav.evaluation.ground_truth import OracleTrajectory
 from qmapnav.evaluation.ground_truth import QuestionRecord
+from qmapnav.evaluation.metrics import count_accuracy_metric
+from qmapnav.evaluation.metrics import CountAccuracyMetric
+from qmapnav.evaluation.metrics import forbidden_region_metrics
+from qmapnav.evaluation.metrics import ForbiddenRegionMetric
+from qmapnav.evaluation.metrics import object_selection_metric
+from qmapnav.evaluation.metrics import ObjectSelectionMetric
+from qmapnav.evaluation.metrics import relation_metrics
+from qmapnav.evaluation.metrics import RelationMetric
+from qmapnav.evaluation.metrics import required_region_metrics
+from qmapnav.evaluation.metrics import RequiredRegionMetric
+from qmapnav.evaluation.metrics import semantic_route_metric
+from qmapnav.evaluation.metrics import SemanticRouteMetric
+from qmapnav.evaluation.metrics import terminal_goal_distance
+from qmapnav.evaluation.metrics import TimingMetric
 from qmapnav.evaluation.trace import DecisionTraceEvent
 from qmapnav.evaluation.trace import InMemoryTraceRecorder
 from qmapnav.evaluation.trace import JsonlDecisionTraceRecorder
@@ -30,19 +44,28 @@ from qmapnav.evaluation.trace import TraceRecorderStats
 
 __all__ = [
     'ColourAttribute',
+    'CountAccuracyMetric',
     'DatasetLoadError',
     'DecisionTraceEvent',
     'InMemoryTraceRecorder',
     'JsonlDecisionTraceRecorder',
+    'ForbiddenRegionMetric',
+    'ObjectSelectionMetric',
     'OracleObject',
     'OracleRegion',
     'OracleRelation',
     'OracleScene',
     'OracleTrajectory',
     'QuestionRecord',
+    'RelationMetric',
+    'RequiredRegionMetric',
+    'SemanticRouteMetric',
     'TRACE_SCHEMA_VERSION',
     'TraceRecorder',
     'TraceRecorderStats',
+    'TimingMetric',
+    'count_accuracy_metric',
+    'forbidden_region_metrics',
     'ground_truth_to_data',
     'ground_truth_to_json',
     'load_ascii_trajectory_ply',
@@ -55,4 +78,9 @@ __all__ = [
     'load_vla3d_regions',
     'load_vla3d_relations',
     'merge_unity_and_vla_objects',
+    'object_selection_metric',
+    'relation_metrics',
+    'required_region_metrics',
+    'semantic_route_metric',
+    'terminal_goal_distance',
 ]

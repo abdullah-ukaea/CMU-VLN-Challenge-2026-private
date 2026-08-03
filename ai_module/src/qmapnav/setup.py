@@ -27,6 +27,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'qmapnav_benchmark = qmapnav.evaluation.benchmark_runner:main',
             'qmapnav_node = qmapnav.mission.node:main',
         ],
     },
