@@ -2,6 +2,7 @@
 
 from importlib import import_module
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 
@@ -11,6 +12,7 @@ from qmapnav.perception.contracts import PerspectiveView
 from qmapnav.perception.detector_interface import canonical_for_text_label
 from qmapnav.perception.detector_interface import DetectorIdentity
 from qmapnav.perception.detector_interface import flatten_detector_prompts
+from qmapnav.perception.detector_interface import immutable_timing
 from qmapnav.perception.detector_interface import validate_candidate_detections
 from qmapnav.perception.yoloe_detector import _clip_box
 from qmapnav.perception.yoloe_detector import DetectorDependencyError
@@ -59,17 +61,28 @@ class GroundingDinoTinyDetector:
             **load_arguments,
         ).to(device)
         self._model.eval()
+        self._last_timing_ms = immutable_timing(
+            {'preprocess': 0.0, 'inference': 0.0, 'postprocess': 0.0}
+        )
         self._identity = DetectorIdentity(
             candidate_name='grounding_dino_tiny',
             framework='transformers',
             checkpoint=f'{self._model_name_or_path}@{revision}',
             version=str(getattr(transformers, '__version__', 'unknown')),
+            device=device,
+            precision='fp32',
+            input_size='processor-resized',
         )
 
     @property
     def identity(self) -> DetectorIdentity:
         """Return the loaded GroundingDINO identity."""
         return self._identity
+
+    @property
+    def last_timing_ms(self):
+        """Return the latest measured per-crop timing breakdown."""
+        return self._last_timing_ms
 
     def detect(
         self,
@@ -83,19 +96,34 @@ class GroundingDinoTinyDetector:
             raise ValueError('confidence_threshold must lie in [0, 1]')
         prompts, prompt_to_canonical = flatten_detector_prompts(detector_classes)
         text_labels = [list(prompts)]
+        self._synchronize()
+        preprocess_start = perf_counter()
         inputs = self._processor(
             images=np.asarray(view.image_rgb),
             text=text_labels,
             return_tensors='pt',
         ).to(self._device)
+        self._synchronize()
+        inference_start = perf_counter()
         with self._torch.no_grad():
             outputs = self._model(**inputs)
+        self._synchronize()
+        postprocess_start = perf_counter()
         results = self._processor.post_process_grounded_object_detection(
             outputs,
             inputs.input_ids,
             threshold=confidence_threshold,
             text_threshold=self._text_threshold,
             target_sizes=[(view.geometry.height, view.geometry.width)],
+        )
+        self._synchronize()
+        postprocess_end = perf_counter()
+        self._last_timing_ms = immutable_timing(
+            {
+                'preprocess': (inference_start - preprocess_start) * 1000.0,
+                'inference': (postprocess_start - inference_start) * 1000.0,
+                'postprocess': (postprocess_end - postprocess_start) * 1000.0,
+            }
         )
         if len(results) != 1:
             raise RuntimeError('GroundingDINO must return exactly one crop result')
@@ -131,3 +159,7 @@ class GroundingDinoTinyDetector:
             view,
             detector_classes,
         )
+
+    def _synchronize(self) -> None:
+        if self._device.startswith('cuda') and self._torch.cuda.is_available():
+            self._torch.cuda.synchronize()

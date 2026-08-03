@@ -1,5 +1,6 @@
 """Lazy Ultralytics YOLOE adapter for Day 4 candidate A."""
 
+from contextlib import chdir
 from importlib import import_module
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from qmapnav.perception.contracts import PerspectiveView
 from qmapnav.perception.detector_interface import canonical_for_text_label
 from qmapnav.perception.detector_interface import DetectorIdentity
 from qmapnav.perception.detector_interface import flatten_detector_prompts
+from qmapnav.perception.detector_interface import immutable_timing
 from qmapnav.perception.detector_interface import validate_candidate_detections
 
 
@@ -39,22 +41,36 @@ class YOLOEDetector:
         if image_size <= 0:
             raise ValueError('image_size must be positive')
         self._checkpoint = str(checkpoint)
+        self._asset_directory = (
+            Path(self._checkpoint).expanduser().resolve().parent
+        )
         self._device = device
         self._image_size = int(image_size)
         self._half_precision = bool(half_precision)
         self._model = yoloe_class(self._checkpoint)
         self._active_prompts: tuple[str, ...] = ()
+        self._last_timing_ms = immutable_timing(
+            {'preprocess': 0.0, 'inference': 0.0, 'postprocess': 0.0}
+        )
         self._identity = DetectorIdentity(
             candidate_name='compact_yoloe',
             framework='ultralytics',
             checkpoint=self._checkpoint,
             version=str(getattr(ultralytics, '__version__', 'unknown')),
+            device=device,
+            precision='fp16' if half_precision else 'fp32',
+            input_size=f'{image_size}x{image_size}',
         )
 
     @property
     def identity(self) -> DetectorIdentity:
         """Return the loaded YOLOE identity."""
         return self._identity
+
+    @property
+    def last_timing_ms(self):
+        """Return the latest Ultralytics per-crop timing breakdown."""
+        return self._last_timing_ms
 
     def detect(
         self,
@@ -68,13 +84,14 @@ class YOLOEDetector:
             raise ValueError('confidence_threshold must lie in [0, 1]')
         prompts, prompt_to_canonical = flatten_detector_prompts(detector_classes)
         if prompts != self._active_prompts:
-            try:
-                self._model.set_classes(list(prompts))
-            except TypeError as error:
-                if 'embeddings' not in str(error):
-                    raise
-                embeddings = self._model.get_text_pe(list(prompts))
-                self._model.set_classes(list(prompts), embeddings)
+            with chdir(self._asset_directory):
+                try:
+                    self._model.set_classes(list(prompts))
+                except TypeError as error:
+                    if 'embeddings' not in str(error):
+                        raise
+                    embeddings = self._get_text_embeddings(prompts)
+                    self._model.set_classes(list(prompts), embeddings)
             self._active_prompts = prompts
 
         bgr = np.ascontiguousarray(view.image_rgb[..., ::-1])
@@ -90,6 +107,14 @@ class YOLOEDetector:
         if len(results) != 1:
             raise RuntimeError('YOLOE must return exactly one result per crop')
         result = results[0]
+        speed = result.speed or {}
+        self._last_timing_ms = immutable_timing(
+            {
+                'preprocess': speed.get('preprocess', 0.0),
+                'inference': speed.get('inference', 0.0),
+                'postprocess': speed.get('postprocess', 0.0),
+            }
+        )
         if result.boxes is None:
             return ()
         names = result.names
@@ -121,6 +146,22 @@ class YOLOEDetector:
             view,
             detector_classes,
         )
+
+    def _get_text_embeddings(self, prompts: tuple[str, ...]):
+        """Project MobileCLIP features using the detector head's active dtype."""
+        model = self._model.model
+        try:
+            raw_features = model.get_text_pe(
+                list(prompts),
+                without_reprta=True,
+            )
+            head = model.model[-1]
+            head_dtype = next(head.parameters()).dtype
+            torch = import_module('torch')
+            with torch.inference_mode():
+                return head.get_tpe(raw_features.to(dtype=head_dtype))
+        except (AttributeError, TypeError):
+            return self._model.get_text_pe(list(prompts))
 
 
 def _clip_box(

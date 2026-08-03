@@ -1,7 +1,11 @@
 """Common open-vocabulary detector boundary for the two-candidate bake-off."""
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 from typing import Protocol
+
+import numpy as np
 
 from qmapnav.perception.contracts import CropDetection
 from qmapnav.perception.contracts import DetectorClass
@@ -16,6 +20,9 @@ class DetectorIdentity:
     framework: str
     checkpoint: str
     version: str
+    device: str = 'unknown'
+    precision: str = 'unknown'
+    input_size: str = 'dynamic'
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -23,6 +30,9 @@ class DetectorIdentity:
             ('framework', self.framework),
             ('checkpoint', self.checkpoint),
             ('version', self.version),
+            ('device', self.device),
+            ('precision', self.precision),
+            ('input_size', self.input_size),
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f'{name} must be a non-empty string')
@@ -34,6 +44,11 @@ class OpenVocabularyDetector(Protocol):
     @property
     def identity(self) -> DetectorIdentity:
         """Return the candidate and model identity."""
+        ...
+
+    @property
+    def last_timing_ms(self) -> Mapping[str, float]:
+        """Return the latest preprocessing, inference, and postprocess timing."""
         ...
 
     def detect(
@@ -115,3 +130,13 @@ def _normalize_prompt(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError('detector labels must be non-empty strings')
     return ' '.join(value.casefold().strip().rstrip('.').split())
+
+
+def immutable_timing(values: Mapping[str, float]) -> Mapping[str, float]:
+    """Validate and freeze one detector adapter timing sample."""
+    normalized = {str(name): float(value) for name, value in values.items()}
+    if set(normalized) != {'preprocess', 'inference', 'postprocess'}:
+        raise ValueError('timing requires preprocess, inference, and postprocess')
+    if any(value < 0.0 or not np.isfinite(value) for value in normalized.values()):
+        raise ValueError('detector timings must be finite and non-negative')
+    return MappingProxyType(normalized)
