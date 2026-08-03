@@ -43,3 +43,11 @@ The deterministic safe-offset policy checks lateral, diagonal-backward, and
 backward candidates. It does not treat absence of occupied points as proof of
 free space. This is a conservative Day 2 recovery primitive, not the full
 mapping or planning system scheduled for later days.
+
+## Day 5 dense projection map
+
+`DenseRegisteredScanAccumulator` deliberately remains separate from this
+coarse navigation/recovery map. It uses configurable age, radius, raw-point,
+and centroid-voxel bounds to preserve denser tabletop and furniture geometry
+for projection. Its contract and measured behavior are documented in
+[`projection.md`](projection.md).

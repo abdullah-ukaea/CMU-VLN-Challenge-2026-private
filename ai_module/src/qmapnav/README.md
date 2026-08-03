@@ -3,9 +3,10 @@
 Q-MapNav is the competition AI package for the CMU Vision-Language-Navigation
 Challenge 2026. It is a ROS 2 Jazzy `ament_python` package.
 
-The package currently includes the deterministic language layer and the Day 2
-runtime skeleton: question latching, bounded sequential waypoint execution,
-registered-scan accumulation, and observational decision tracing.
+The package includes the deterministic language layer, bounded sequential
+waypoint execution, registered-scan maps, observational decision tracing, Day
+4 panoramic perception, and the Day 5 source-time camera-LiDAR projection and
+rolling densification path.
 
 Day 3 development infrastructure adds validated adapters for released
 questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
@@ -92,6 +93,12 @@ seam-aware perception worker are documented in
 [`docs/perception.md`](docs/perception.md).
 The measured two-candidate bake-off and selected YOLOE baseline are recorded in
 [`docs/day_4_detector_decision.md`](docs/day_4_detector_decision.md).
+
+The measured map/sensor/camera frame chain is frozen in
+[`docs/day_5_frames.md`](docs/day_5_frames.md). Source-time association,
+current and accumulated projection, detection support, overlays, and the
+five-case regression pack are documented in
+[`docs/projection.md`](docs/projection.md).
 
 ## Build
 
