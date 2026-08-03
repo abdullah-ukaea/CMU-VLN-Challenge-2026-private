@@ -14,6 +14,14 @@ from qmapnav.evaluation.dataset_loader import merge_unity_and_vla_objects
 from qmapnav.evaluation.detector_benchmark import CandidatePredictions
 from qmapnav.evaluation.detector_benchmark import DetectorBenchmarkCase
 from qmapnav.evaluation.detector_benchmark import TwoCandidateDetectorBenchmark
+from qmapnav.evaluation.detector_dataset import DetectorDataset
+from qmapnav.evaluation.detector_dataset import DetectorDatasetCase
+from qmapnav.evaluation.detector_dataset import load_detector_dataset
+from qmapnav.evaluation.detector_dataset import roll_visible_instance
+from qmapnav.evaluation.detector_metrics import DetectionMetricCounts
+from qmapnav.evaluation.detector_metrics import empty_metric_counts
+from qmapnav.evaluation.detector_metrics import score_panorama_detections
+from qmapnav.evaluation.detector_metrics import VisibleInstance
 from qmapnav.evaluation.ground_truth import ColourAttribute
 from qmapnav.evaluation.ground_truth import ground_truth_to_data
 from qmapnav.evaluation.ground_truth import ground_truth_to_json
@@ -70,6 +78,14 @@ __all__ = [
     'TraceRecorderStats',
     'TimingMetric',
     'TwoCandidateDetectorBenchmark',
+    'DetectionMetricCounts',
+    'DetectorDataset',
+    'DetectorDatasetCase',
+    'VisibleInstance',
+    'empty_metric_counts',
+    'load_detector_dataset',
+    'roll_visible_instance',
+    'score_panorama_detections',
     'count_accuracy_metric',
     'forbidden_region_metrics',
     'ground_truth_to_data',

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import rosbag2_py
 from rclpy.serialization import deserialize_message
+import rosbag2_py
 from sensor_msgs.msg import Image
 
 

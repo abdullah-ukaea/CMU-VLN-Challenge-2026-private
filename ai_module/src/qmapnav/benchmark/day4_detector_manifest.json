@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "annotation_policy": {
+    "matching_iou_threshold": 0.25,
+    "small_definition": "shorter panorama-box side below 45 pixels",
+    "verification": "manually inspected visible boxes on live simulator panoramas",
+    "roll_shift_pixels": 640
+  },
+  "class_prompts": {
+    "bed": ["bed"],
+    "bench": ["bench"],
+    "bookshelf": ["bookshelf", "bookcase"],
+    "bottle": ["bottle"],
+    "chair": ["chair"],
+    "computer_monitor": ["computer monitor", "monitor"],
+    "cushion": ["cushion", "floor cushion"],
+    "decorative_fan": ["decorative wall fan", "fan decoration"],
+    "figurine": ["figurine", "small statue"],
+    "filing_cabinet": ["filing cabinet"],
+    "folding_screen": ["folding screen", "room divider"],
+    "lamp": ["lamp", "floor lamp"],
+    "microwave": ["microwave"],
+    "nightstand": ["nightstand", "bedside table"],
+    "potted_plant": ["potted plant", "plant"],
+    "projector_screen": ["projector screen", "projection screen"],
+    "refrigerator": ["refrigerator", "fridge"],
+    "sofa": ["sofa", "couch"],
+    "stool": ["stool", "bar stool"],
+    "table": ["table"],
+    "telephone": ["telephone", "phone"],
+    "television": ["television", "TV"],
+    "trash_can": ["trash can", "waste bin"],
+    "vase": ["vase"],
+    "vending_machine": ["vending machine"],
+    "whiteboard": ["whiteboard"],
+    "window": ["window"]
+  },
+  "panoramas": [
+    {
+      "image_id": "livingroom_1_spawn",
+      "scene": "livingroom_1",
+      "image_path": "/home/docker/day4/benchmark/livingroom_1_spawn.png",
+      "annotations": [
+        {"id": "chair_1", "class": "chair", "x": [[165, 284]], "y": [315, 432], "target": true, "anchor": false, "rare": false},
+        {"id": "television_1", "class": "television", "x": [[1158, 1274]], "y": [208, 320], "target": true, "anchor": true, "rare": false},
+        {"id": "table_1", "class": "table", "x": [[1429, 1544]], "y": [347, 425], "target": false, "anchor": true, "rare": false},
+        {"id": "sofa_1", "class": "sofa", "x": [[1557, 1848]], "y": [303, 509], "target": true, "anchor": true, "rare": false},
+        {"id": "lamp_1", "class": "lamp", "x": [[291, 356]], "y": [245, 444], "target": true, "anchor": false, "rare": false},
+        {"id": "plant_1", "class": "potted_plant", "x": [[1298, 1355]], "y": [307, 380], "target": true, "anchor": false, "rare": false},
+        {"id": "figurine_1", "class": "figurine", "x": [[1015, 1044]], "y": [302, 344], "target": true, "anchor": false, "rare": true},
+        {"id": "window_1", "class": "window", "x": [[0, 178]], "y": [183, 354], "target": false, "anchor": true, "rare": false}
+      ]
+    },
+    {
+      "image_id": "livingroom_2_spawn",
+      "scene": "livingroom_2",
+      "image_path": "/home/docker/day4/benchmark/livingroom_2_spawn.png",
+      "annotations": [
+        {"id": "chair_1", "class": "chair", "x": [[250, 344]], "y": [310, 428], "target": true, "anchor": false, "rare": false},
+        {"id": "refrigerator_1", "class": "refrigerator", "x": [[666, 760]], "y": [192, 326], "target": true, "anchor": true, "rare": false},
+        {"id": "microwave_1", "class": "microwave", "x": [[497, 545]], "y": [290, 321], "target": true, "anchor": false, "rare": true},
+        {"id": "stool_1", "class": "stool", "x": [[764, 837]], "y": [317, 556], "target": true, "anchor": false, "rare": false},
+        {"id": "stool_2", "class": "stool", "x": [[839, 911]], "y": [317, 556], "target": true, "anchor": false, "rare": false},
+        {"id": "bookshelf_1", "class": "bookshelf", "x": [[980, 1135]], "y": [198, 423], "target": false, "anchor": true, "rare": false},
+        {"id": "television_1", "class": "television", "x": [[1188, 1274]], "y": [271, 350], "target": true, "anchor": true, "rare": false},
+        {"id": "table_1", "class": "table", "x": [[1342, 1465]], "y": [331, 426], "target": false, "anchor": true, "rare": false},
+        {"id": "sofa_1", "class": "sofa", "x": [[1518, 1685]], "y": [300, 426], "target": true, "anchor": true, "rare": false},
+        {"id": "window_1", "class": "window", "x": [[1296, 1528]], "y": [214, 349], "target": false, "anchor": true, "rare": false},
+        {"id": "bottle_1", "class": "bottle", "x": [[800, 818]], "y": [258, 323], "target": true, "anchor": false, "rare": true}
+      ]
+    },
+    {
+      "image_id": "japanese_room_spawn",
+      "scene": "japanese_room",
+      "image_path": "/home/docker/day4/benchmark/japanese_room_spawn.png",
+      "annotations": [
+        {"id": "table_1", "class": "table", "x": [[285, 510]], "y": [376, 459], "target": false, "anchor": true, "rare": false},
+        {"id": "cushion_1", "class": "cushion", "x": [[249, 353]], "y": [430, 476], "target": true, "anchor": false, "rare": true},
+        {"id": "cushion_2", "class": "cushion", "x": [[350, 456]], "y": [433, 490], "target": true, "anchor": false, "rare": true},
+        {"id": "folding_screen_1", "class": "folding_screen", "x": [[438, 619]], "y": [231, 386], "target": true, "anchor": true, "rare": true},
+        {"id": "lamp_1", "class": "lamp", "x": [[1049, 1095]], "y": [372, 480], "target": true, "anchor": false, "rare": true},
+        {"id": "plant_1", "class": "potted_plant", "x": [[1818, 1890]], "y": [196, 424], "target": true, "anchor": false, "rare": false},
+        {"id": "vase_1", "class": "vase", "x": [[923, 953]], "y": [365, 434], "target": true, "anchor": false, "rare": true},
+        {"id": "decorative_fan_1", "class": "decorative_fan", "x": [[1155, 1265]], "y": [190, 323], "target": true, "anchor": false, "rare": true}
+      ]
+    },
+    {
+      "image_id": "hotel_room_1_spawn",
+      "scene": "hotel_room_1",
+      "image_path": "/home/docker/day4/benchmark/hotel_room_1_spawn.png",
+      "annotations": [
+        {"id": "bed_1", "class": "bed", "x": [[982, 1353]], "y": [270, 541], "target": true, "anchor": true, "rare": false},
+        {"id": "bench_1", "class": "bench", "x": [[649, 849]], "y": [342, 456], "target": true, "anchor": false, "rare": false},
+        {"id": "lamp_1", "class": "lamp", "x": [[208, 270]], "y": [265, 451], "target": true, "anchor": false, "rare": false},
+        {"id": "chair_1", "class": "chair", "x": [[1505, 1625]], "y": [300, 454], "target": true, "anchor": false, "rare": false},
+        {"id": "television_1", "class": "television", "x": [[1641, 1738]], "y": [193, 280], "target": true, "anchor": true, "rare": false},
+        {"id": "window_1", "class": "window", "x": [[1285, 1490]], "y": [213, 385], "target": false, "anchor": true, "rare": false},
+        {"id": "telephone_1", "class": "telephone", "x": [[1697, 1742]], "y": [289, 314], "target": true, "anchor": false, "rare": true},
+        {"id": "nightstand_1", "class": "nightstand", "x": [[904, 980]], "y": [341, 410], "target": false, "anchor": true, "rare": false}
+      ]
+    },
+    {
+      "image_id": "office_2_spawn",
+      "scene": "office_2",
+      "image_path": "/home/docker/day4/benchmark/office_2_spawn.png",
+      "annotations": [
+        {"id": "chair_1", "class": "chair", "x": [[440, 532]], "y": [286, 430], "target": true, "anchor": false, "rare": false},
+        {"id": "chair_2", "class": "chair", "x": [[704, 780]], "y": [291, 417], "target": true, "anchor": false, "rare": false},
+        {"id": "table_1", "class": "table", "x": [[515, 744]], "y": [312, 478], "target": false, "anchor": true, "rare": false},
+        {"id": "window_1", "class": "window", "x": [[435, 519]], "y": [213, 322], "target": false, "anchor": true, "rare": false},
+        {"id": "window_2", "class": "window", "x": [[552, 630]], "y": [213, 322], "target": false, "anchor": true, "rare": false},
+        {"id": "window_3", "class": "window", "x": [[666, 766]], "y": [213, 322], "target": false, "anchor": true, "rare": false},
+        {"id": "monitor_1", "class": "computer_monitor", "x": [[555, 637]], "y": [231, 323], "target": true, "anchor": false, "rare": false},
+        {"id": "whiteboard_1", "class": "whiteboard", "x": [[879, 971]], "y": [260, 329], "target": false, "anchor": true, "rare": false},
+        {"id": "trash_can_1", "class": "trash_can", "x": [[997, 1034]], "y": [362, 428], "target": true, "anchor": false, "rare": false},
+        {"id": "vending_machine_1", "class": "vending_machine", "x": [[1507, 1652]], "y": [178, 484], "target": true, "anchor": true, "rare": true}
+      ]
+    },
+    {
+      "image_id": "office_1_spawn",
+      "scene": "office_1",
+      "image_path": "/home/docker/day4/benchmark/office_1_spawn.png",
+      "annotations": [
+        {"id": "bookshelf_1", "class": "bookshelf", "x": [[84, 439]], "y": [12, 489], "target": false, "anchor": true, "rare": false},
+        {"id": "filing_cabinet_1", "class": "filing_cabinet", "x": [[622, 870]], "y": [247, 495], "target": true, "anchor": true, "rare": false},
+        {"id": "monitor_1", "class": "computer_monitor", "x": [[1062, 1114]], "y": [254, 320], "target": true, "anchor": false, "rare": false},
+        {"id": "monitor_2", "class": "computer_monitor", "x": [[1115, 1170]], "y": [253, 320], "target": true, "anchor": false, "rare": false},
+        {"id": "monitor_3", "class": "computer_monitor", "x": [[1170, 1230]], "y": [248, 321], "target": true, "anchor": false, "rare": false},
+        {"id": "window_1", "class": "window", "x": [[1250, 1645]], "y": [218, 340], "target": false, "anchor": true, "rare": false},
+        {"id": "chair_1", "class": "chair", "x": [[1003, 1143]], "y": [286, 477], "target": true, "anchor": false, "rare": false},
+        {"id": "chair_2", "class": "chair", "x": [[1248, 1323]], "y": [289, 425], "target": true, "anchor": false, "rare": false},
+        {"id": "chair_3", "class": "chair", "x": [[1505, 1650]], "y": [282, 435], "target": true, "anchor": false, "rare": false},
+        {"id": "chair_seam", "class": "chair", "x": [[0, 26], [1864, 1920]], "y": [285, 486], "target": true, "anchor": false, "rare": false, "seam": true},
+        {"id": "table_1", "class": "table", "x": [[1000, 1280]], "y": [316, 492], "target": false, "anchor": true, "rare": false},
+        {"id": "table_2", "class": "table", "x": [[1510, 1853]], "y": [298, 490], "target": false, "anchor": true, "rare": false},
+        {"id": "projector_screen_1", "class": "projector_screen", "x": [[1730, 1905]], "y": [209, 315], "target": false, "anchor": true, "rare": false},
+        {"id": "plant_1", "class": "potted_plant", "x": [[690, 780]], "y": [187, 274], "target": true, "anchor": false, "rare": false}
+      ]
+    }
+  ]
+}
