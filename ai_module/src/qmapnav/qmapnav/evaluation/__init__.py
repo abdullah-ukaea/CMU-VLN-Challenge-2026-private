@@ -11,6 +11,9 @@ from qmapnav.evaluation.dataset_loader import load_vla3d_objects
 from qmapnav.evaluation.dataset_loader import load_vla3d_regions
 from qmapnav.evaluation.dataset_loader import load_vla3d_relations
 from qmapnav.evaluation.dataset_loader import merge_unity_and_vla_objects
+from qmapnav.evaluation.detector_benchmark import CandidatePredictions
+from qmapnav.evaluation.detector_benchmark import DetectorBenchmarkCase
+from qmapnav.evaluation.detector_benchmark import TwoCandidateDetectorBenchmark
 from qmapnav.evaluation.ground_truth import ColourAttribute
 from qmapnav.evaluation.ground_truth import ground_truth_to_data
 from qmapnav.evaluation.ground_truth import ground_truth_to_json
@@ -44,9 +47,11 @@ from qmapnav.evaluation.trace import TraceRecorderStats
 
 __all__ = [
     'ColourAttribute',
+    'CandidatePredictions',
     'CountAccuracyMetric',
     'DatasetLoadError',
     'DecisionTraceEvent',
+    'DetectorBenchmarkCase',
     'InMemoryTraceRecorder',
     'JsonlDecisionTraceRecorder',
     'ForbiddenRegionMetric',
@@ -64,6 +69,7 @@ __all__ = [
     'TraceRecorder',
     'TraceRecorderStats',
     'TimingMetric',
+    'TwoCandidateDetectorBenchmark',
     'count_accuracy_metric',
     'forbidden_region_metrics',
     'ground_truth_to_data',
