@@ -15,10 +15,14 @@ from qmapnav.mapping.structural_map import StructuralAssociationEvent
 from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import candidate_to_marker_spec
 from qmapnav.mission.marker_adapter import FinalMarkerGuard
+from qmapnav.mission.marker_adapter import FinalObjectAnswerGuard
 from qmapnav.mission.marker_adapter import marker_spec_to_ros
+from qmapnav.mission.marker_adapter import object_instance_to_marker_spec
 from qmapnav.mission.marker_adapter import object_map_marker_array
 from qmapnav.mission.marker_adapter import relation_marker_array
 from qmapnav.mission.marker_adapter import structural_map_marker_array
+from qmapnav.mission.marker_adapter import validate_final_marker_message
+from qmapnav.mission.marker_adapter import validate_marker_spec
 from qmapnav.reasoning.relation_graph import RelationGraph
 from qmapnav.reasoning.support_geometry import support_geometry
 
@@ -68,8 +72,8 @@ def test_marker_spec_and_ros_message_use_map_obb_contract() -> None:
     message = marker_spec_to_ros(spec)
 
     assert spec.frame_id == 'map'
-    assert spec.centre_xyz == (1.5, 2.25, 0.6)
-    assert spec.dimensions_xyz == (1.0, 0.5, 1.0)
+    assert np.allclose(spec.centre_xyz, (1.5, 2.25, 0.6))
+    assert np.allclose(spec.dimensions_xyz, (1.0, 0.5, 1.0))
     assert np.isclose(np.linalg.norm(spec.orientation_xyzw), 1.0)
     assert message.header.frame_id == 'map'
     assert message.type == message.CUBE
@@ -97,6 +101,57 @@ def test_final_marker_guard_publishes_once_only_when_explicitly_committed() -> N
     assert len(published) == 1
     with pytest.raises(RuntimeError, match='already committed'):
         guard.commit(_candidate())
+
+
+def _instance(orientation_confidence=0.8) -> ObjectInstance:
+    candidate = _candidate()
+    return ObjectInstance(
+        7,
+        {'chair': 1.0},
+        {},
+        candidate.obb_centre_xyz,
+        candidate.aabb_min_xyz,
+        candidate.aabb_max_xyz,
+        candidate.obb_dimensions_xyz,
+        candidate.obb_yaw_rad,
+        orientation_confidence,
+        3,
+        0.85,
+    )
+
+
+def test_persistent_instance_marker_uses_fused_geometry() -> None:
+    spec = object_instance_to_marker_spec(_instance(), timestamp_ns=99)
+
+    assert np.allclose(spec.centre_xyz, (1.5, 2.25, 0.6))
+    assert np.allclose(spec.dimensions_xyz, (1.0, 0.5, 1.0))
+    assert validate_marker_spec(spec) == ()
+    assert validate_final_marker_message(marker_spec_to_ros(spec)) == ()
+
+
+def test_low_orientation_confidence_uses_conservative_aabb() -> None:
+    spec = object_instance_to_marker_spec(
+        _instance(orientation_confidence=0.2), timestamp_ns=99
+    )
+
+    assert np.allclose(spec.centre_xyz, (1.5, 2.25, 0.6))
+    assert np.allclose(spec.dimensions_xyz, (1.0, 0.5, 1.0))
+    assert spec.orientation_xyzw == (0.0, 0.0, 0.0, 1.0)
+
+
+def test_final_object_answer_guard_publishes_matching_waypoint_once() -> None:
+    markers = []
+    waypoints = []
+    guard = FinalObjectAnswerGuard(markers.append, waypoints.append)
+
+    answer = guard.commit(_instance(), timestamp_ns=99)
+
+    assert guard.committed
+    assert len(markers) == 1
+    assert waypoints == [(1.5, 2.25, 0.0)]
+    assert answer.marker.centre_xyz[:2] == answer.waypoint_xy_heading[:2]
+    with pytest.raises(RuntimeError, match='already committed'):
+        guard.commit(_instance(), timestamp_ns=100)
 
 
 def test_fused_map_markers_include_labels_and_association_lines() -> None:

@@ -75,6 +75,35 @@ def test_node_uses_only_permitted_official_topics(node: object) -> None:
     )
     assert node._official_marker_publisher.topic_name == '/selected_object_marker'
     assert not node._final_marker_guard.committed
+    assert not node._final_object_answer_guard.committed
+
+
+def test_node_commits_persistent_object_with_matching_waypoint(node) -> None:
+    from qmapnav.common import ObjectInstance
+
+    waypoint_recorder = _RecordingPublisher()
+    node._waypoint_publisher = waypoint_recorder
+    instance = ObjectInstance(
+        7,
+        {'chair': 0.9},
+        {},
+        np.array([1.0, 2.0, 0.5]),
+        np.array([0.5, 1.5, 0.0]),
+        np.array([1.5, 2.5, 1.0]),
+        np.array([1.0, 1.0, 1.0]),
+        0.2,
+        0.8,
+        2,
+        0.85,
+    )
+
+    answer = node._final_object_answer_guard.commit(instance, timestamp_ns=1)
+
+    assert answer.marker.frame_id == 'map'
+    assert node._final_object_answer_guard.committed
+    assert len(waypoint_recorder.messages) == 1
+    waypoint = waypoint_recorder.messages[0]
+    assert (waypoint.x, waypoint.y) == (1.0, 2.0)
 
 
 def test_node_loads_day9_policy_and_system_robot_footprint(node: object) -> None:

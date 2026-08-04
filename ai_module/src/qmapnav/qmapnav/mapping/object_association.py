@@ -20,14 +20,18 @@ CLASS_ALIASES = {
     'computer_display': 'computer_monitor',
     'computer_screen': 'computer_monitor',
     'couch': 'sofa',
+    'desk_light': 'lamp',
     'display': 'computer_monitor',
+    'flowers': 'flower',
     'garbage_bin': 'trash_can',
     'garbage_can': 'trash_can',
     'monitor': 'computer_monitor',
+    'nightstand': 'night_stand',
     'television': 'tv',
     'trash_bin': 'trash_can',
     'waste_bin': 'trash_can',
     'wastebasket': 'trash_can',
+    'zen_stone_decoration': 'stone_decoration',
 }
 COMPATIBLE_CLASSES = {
     frozenset({'chair', 'stool'}): 0.72,

@@ -96,6 +96,121 @@ def candidate_to_marker_spec(
     )
 
 
+def object_instance_to_marker_spec(
+    instance: ObjectInstance,
+    *,
+    timestamp_ns: int,
+    marker_id: int = 0,
+    namespace: str = 'qmapnav_selected_object',
+    official: bool = True,
+    minimum_dimension_m: float = 0.05,
+    orientation_confidence_threshold: float = 0.40,
+) -> MarkerSpec:
+    """Convert one persistent fused instance to its final marker snapshot."""
+    if not isinstance(instance, ObjectInstance):
+        raise TypeError('instance must be ObjectInstance')
+    if timestamp_ns < 0:
+        raise ValueError('timestamp_ns must be non-negative')
+    if not isfinite(minimum_dimension_m) or minimum_dimension_m <= 0.0:
+        raise ValueError('minimum_dimension_m must be positive')
+    if not isfinite(orientation_confidence_threshold) or not (
+        0.0 <= orientation_confidence_threshold <= 1.0
+    ):
+        raise ValueError('orientation confidence threshold must lie in [0, 1]')
+    if instance.orientation_confidence < orientation_confidence_threshold:
+        yaw = 0.0
+        dimensions = instance.aabb_max_xyz - instance.aabb_min_xyz
+        centre = (instance.aabb_min_xyz + instance.aabb_max_xyz) / 2.0
+    else:
+        yaw = instance.obb_yaw
+        dimensions = instance.obb_dimensions
+        centre = instance.centroid_xyz
+    dimensions = np.maximum(dimensions, minimum_dimension_m)
+    colour = (0.0, 0.2, 1.0, 0.65) if official else (
+        float(1.0 - instance.confidence),
+        float(instance.confidence),
+        float(instance.orientation_confidence),
+        0.70,
+    )
+    return MarkerSpec(
+        frame_id='map',
+        timestamp_ns=timestamp_ns,
+        namespace=namespace,
+        marker_id=marker_id,
+        centre_xyz=tuple(float(value) for value in centre),
+        orientation_xyzw=(0.0, 0.0, sin(yaw / 2.0), cos(yaw / 2.0)),
+        dimensions_xyz=tuple(float(value) for value in dimensions),
+        colour_rgba=colour,
+        official=official,
+    )
+
+
+def validate_marker_spec(spec: MarkerSpec) -> tuple[str, ...]:
+    """Return hard protocol errors for a final pure marker specification."""
+    if not isinstance(spec, MarkerSpec):
+        return ('wrong_message_type',)
+    errors = []
+    if spec.frame_id != 'map':
+        errors.append('wrong_frame')
+    if not spec.official:
+        errors.append('not_official')
+    if not all(isfinite(value) for value in spec.centre_xyz):
+        errors.append('invalid_centre')
+    norm = float(np.linalg.norm(spec.orientation_xyzw))
+    if not isfinite(norm) or not np.isclose(norm, 1.0, atol=1.0e-6):
+        errors.append('invalid_orientation')
+    if any(
+        not isfinite(value) or value <= 0.0
+        for value in spec.dimensions_xyz
+    ):
+        errors.append('invalid_dimensions')
+    return tuple(errors)
+
+
+def validate_final_marker_message(message) -> tuple[str, ...]:
+    """Validate an official visualization_msgs/Marker at the ROS boundary."""
+    try:
+        from visualization_msgs.msg import Marker
+    except ImportError:
+        Marker = None
+    errors = []
+    if message is None:
+        return ('missing_marker',)
+    if getattr(getattr(message, 'header', None), 'frame_id', None) != 'map':
+        errors.append('wrong_frame')
+    if Marker is not None:
+        if getattr(message, 'type', None) != Marker.CUBE:
+            errors.append('wrong_marker_type')
+        if getattr(message, 'action', None) != Marker.ADD:
+            errors.append('wrong_marker_action')
+    pose = getattr(message, 'pose', None)
+    position = getattr(pose, 'position', None)
+    orientation = getattr(pose, 'orientation', None)
+    scale = getattr(message, 'scale', None)
+    centre = tuple(
+        getattr(position, axis, float('nan')) for axis in ('x', 'y', 'z')
+    )
+    quaternion = tuple(
+        getattr(orientation, axis, float('nan'))
+        for axis in ('x', 'y', 'z', 'w')
+    )
+    dimensions = tuple(
+        getattr(scale, axis, float('nan')) for axis in ('x', 'y', 'z')
+    )
+    if not all(isfinite(value) for value in centre):
+        errors.append('invalid_centre')
+    norm = float(np.linalg.norm(quaternion))
+    if not isfinite(norm) or not np.isclose(norm, 1.0, atol=1.0e-6):
+        errors.append('invalid_orientation')
+    if any(not isfinite(value) or value <= 0.0 for value in dimensions):
+        errors.append('invalid_dimensions')
+    if getattr(message, 'id', -1) < 0:
+        errors.append('invalid_marker_id')
+    if not str(getattr(message, 'ns', '')).strip():
+        errors.append('invalid_namespace')
+    return tuple(errors)
+
+
 def marker_spec_to_ros(spec: MarkerSpec, *, action: int | None = None):
     """Convert a pure marker specification into visualization_msgs/Marker."""
     from visualization_msgs.msg import Marker
@@ -460,13 +575,87 @@ class FinalMarkerGuard:
             return spec
 
 
+@dataclass(frozen=True)
+class FinalObjectAnswer:
+    """One persistent marker and matching object-centre waypoint commitment."""
+
+    marker: MarkerSpec
+    waypoint_xy_heading: tuple[float, float, float]
+
+
+class FinalObjectAnswerGuard:
+    """Publish one fused-object marker and configured matching waypoint."""
+
+    def __init__(
+        self,
+        publish_marker: Callable[[object], None],
+        publish_waypoint: Callable[[tuple[float, float, float]], None],
+        *,
+        publish_matching_waypoint: bool = True,
+        namespace: str = 'qmapnav_selected_object',
+        orientation_confidence_threshold: float = 0.40,
+    ) -> None:
+        self._publish_marker = publish_marker
+        self._publish_waypoint = publish_waypoint
+        self._publish_matching_waypoint = publish_matching_waypoint
+        self._namespace = namespace
+        self._orientation_confidence_threshold = (
+            orientation_confidence_threshold
+        )
+        self._committed = False
+        self._lock = Lock()
+
+    @property
+    def committed(self) -> bool:
+        """Return whether the logical final answer was already committed."""
+        with self._lock:
+            return self._committed
+
+    def commit(
+        self,
+        instance: ObjectInstance,
+        *,
+        timestamp_ns: int,
+        marker_id: int = 0,
+    ) -> FinalObjectAnswer:
+        """Commit one immutable persistent-object snapshot exactly once."""
+        with self._lock:
+            if self._committed:
+                raise RuntimeError('final object answer already committed')
+            spec = object_instance_to_marker_spec(
+                instance,
+                timestamp_ns=timestamp_ns,
+                marker_id=marker_id,
+                namespace=self._namespace,
+                orientation_confidence_threshold=(
+                    self._orientation_confidence_threshold
+                ),
+            )
+            errors = validate_marker_spec(spec)
+            if errors:
+                raise ValueError(f'invalid final marker: {errors}')
+            waypoint = (
+                float(spec.centre_xyz[0]),
+                float(spec.centre_xyz[1]),
+                0.0,
+            )
+            self._committed = True
+            self._publish_marker(marker_spec_to_ros(spec))
+            if self._publish_matching_waypoint:
+                self._publish_waypoint(waypoint)
+            return FinalObjectAnswer(spec, waypoint)
+
+
 __all__ = [
     'candidate_marker_array',
     'candidate_to_marker_spec',
     'CANDIDATE_MARKER_TOPIC',
     'FinalMarkerGuard',
+    'FinalObjectAnswer',
+    'FinalObjectAnswerGuard',
     'MarkerSpec',
     'marker_spec_to_ros',
+    'object_instance_to_marker_spec',
     'OBJECT_MAP_MARKER_TOPIC',
     'OFFICIAL_MARKER_TOPIC',
     'object_map_marker_array',
@@ -474,4 +663,6 @@ __all__ = [
     'relation_marker_array',
     'STRUCTURAL_MAP_MARKER_TOPIC',
     'structural_map_marker_array',
+    'validate_final_marker_message',
+    'validate_marker_spec',
 ]

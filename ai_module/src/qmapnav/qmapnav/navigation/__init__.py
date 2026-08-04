@@ -10,6 +10,12 @@ from qmapnav.navigation.executor import ExecutorEventType
 from qmapnav.navigation.executor import SequentialWaypointExecutor
 from qmapnav.navigation.executor import Waypoint2D
 from qmapnav.navigation.executor import WaypointExecutorState
+from qmapnav.navigation.targeted_viewpoint import decide_targeted_viewpoint
+from qmapnav.navigation.targeted_viewpoint import EvidenceSufficiency
+from qmapnav.navigation.targeted_viewpoint import generate_targeted_viewpoints
+from qmapnav.navigation.targeted_viewpoint import OneViewpointGuard
+from qmapnav.navigation.targeted_viewpoint import TargetedViewpointCandidate
+from qmapnav.navigation.targeted_viewpoint import TargetedViewpointConfig
 
 
 __all__ = [
@@ -23,4 +29,10 @@ __all__ = [
     'SequentialWaypointExecutor',
     'Waypoint2D',
     'WaypointExecutorState',
+    'EvidenceSufficiency',
+    'OneViewpointGuard',
+    'TargetedViewpointCandidate',
+    'TargetedViewpointConfig',
+    'decide_targeted_viewpoint',
+    'generate_targeted_viewpoints',
 ]

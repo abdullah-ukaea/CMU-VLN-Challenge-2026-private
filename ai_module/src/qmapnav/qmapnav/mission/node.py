@@ -5,6 +5,7 @@ from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import asdict
 from dataclasses import replace
+import json
 from math import atan2
 from pathlib import Path
 from threading import RLock
@@ -14,9 +15,15 @@ from geometry_msgs.msg import Pose2D
 from nav_msgs.msg import Odometry
 import numpy as np
 from qmapnav.common import TaskSpecification
+from qmapnav.evaluation import classify_primary_failure
 from qmapnav.evaluation import DecisionTraceEvent
 from qmapnav.evaluation import JsonlDecisionTraceRecorder
+from qmapnav.evaluation import ObjectReferenceEpisodeResult
+from qmapnav.evaluation import StageEvidence
 from qmapnav.evaluation import TraceRecorder
+from qmapnav.evaluation.object_reference_contracts import (
+    task_specification_data,
+)
 from qmapnav.language import parse_question
 from qmapnav.mapping import AccumulationStatus
 from qmapnav.mapping import AssociationConfig
@@ -72,6 +79,7 @@ from qmapnav.mapping.wall_extraction import WallExtractionConfig
 from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import CANDIDATE_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import FinalMarkerGuard
+from qmapnav.mission.marker_adapter import FinalObjectAnswerGuard
 from qmapnav.mission.marker_adapter import object_map_marker_array
 from qmapnav.mission.marker_adapter import OBJECT_MAP_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import OFFICIAL_MARKER_TOPIC
@@ -79,6 +87,7 @@ from qmapnav.mission.marker_adapter import relation_marker_array
 from qmapnav.mission.marker_adapter import RELATION_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import structural_map_marker_array
 from qmapnav.mission.marker_adapter import STRUCTURAL_MAP_MARKER_TOPIC
+from qmapnav.mission.marker_adapter import validate_marker_spec
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
 from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
@@ -86,10 +95,15 @@ from qmapnav.navigation import DEFAULT_DIRECT_REPUBLISH_LIMIT
 from qmapnav.navigation import DEFAULT_NO_PROGRESS_TIMEOUT
 from qmapnav.navigation import DEFAULT_PROGRESS_EPSILON
 from qmapnav.navigation import DEFAULT_SAFE_OFFSET_LIMIT
+from qmapnav.navigation import EvidenceSufficiency
 from qmapnav.navigation import ExecutorEvent
 from qmapnav.navigation import ExecutorEventType
+from qmapnav.navigation import generate_targeted_viewpoints
+from qmapnav.navigation import OneViewpointGuard
 from qmapnav.navigation import SequentialWaypointExecutor
+from qmapnav.navigation import TargetedViewpointConfig
 from qmapnav.navigation import Waypoint2D
+from qmapnav.navigation import WaypointExecutorState
 from qmapnav.perception.baseline import make_day4_baseline_worker
 from qmapnav.perception.contracts import Detection2D
 from qmapnav.perception.contracts import PerceptionRequest
@@ -106,6 +120,9 @@ from qmapnav.reasoning.colour_pixel_filter import select_object_pixels
 from qmapnav.reasoning.colour_prototypes import load_colour_prototypes
 from qmapnav.reasoning.colour_types import ColourEstimate
 from qmapnav.reasoning.corridor_evaluation import CorridorConfig
+from qmapnav.reasoning.object_reference_solver import (
+    resolve_object_reference_from_maps,
+)
 from qmapnav.reasoning.relation_graph import RelationGraph
 from qmapnav.reasoning.spatial_relations import SpatialRelationConfig
 from qmapnav.reasoning.support_geometry import support_geometry
@@ -176,6 +193,15 @@ class QMapNavNode(Node):
         self._persistent_path_xy: deque[tuple[float, float]] = deque(
             maxlen=2048
         )
+        self._object_reference_state = 'idle'
+        self._object_reference_projection_count = 0
+        self._object_reference_reobservation_start = 0
+        self._object_reference_resolution = None
+        self._object_reference_viewpoint_guard = OneViewpointGuard()
+        self._object_reference_viewpoint_reason: str | None = None
+        self._object_reference_selected_viewpoint = None
+        self._object_reference_started_at: float | None = None
+        self._object_reference_fusion_events: deque[dict] = deque(maxlen=512)
 
         self._question_latch = QuestionLatch()
         self._task_specification: TaskSpecification | None = None
@@ -275,6 +301,16 @@ class QMapNavNode(Node):
         )
         self._final_marker_guard = FinalMarkerGuard(
             self._official_marker_publisher.publish
+        )
+        self._final_object_answer_guard = FinalObjectAnswerGuard(
+            self._official_marker_publisher.publish,
+            self._publish_matching_object_waypoint,
+            publish_matching_waypoint=bool(
+                self.get_parameter('publish_object_matching_waypoint').value
+            ),
+            orientation_confidence_threshold=float(
+                self.get_parameter('lifting_orientation_low_confidence').value
+            ),
         )
         self._watchdog_timer = self.create_timer(
             float(self.get_parameter('watchdog_period').value),
@@ -379,6 +415,8 @@ class QMapNavNode(Node):
         candidate: ObjectCandidate3D,
     ) -> None:
         """Explicitly commit one externally selected candidate as official."""
+        if self._final_object_answer_guard.committed:
+            raise RuntimeError('final object answer already committed')
         self._final_marker_guard.commit(candidate)
         self._trace(
             event='official_object_marker_committed',
@@ -386,6 +424,420 @@ class QMapNavNode(Node):
             selection_reason='explicit_external_candidate_commit',
             details={'candidate_id': candidate.candidate_id},
         )
+
+    def _advance_object_reference_episode(self) -> None:
+        """Rank after bounded evidence and optionally reobserve exactly once."""
+        task = self._task_specification
+        if task is None or task.task_type != 'object_reference':
+            return
+        if self._object_reference_state in {
+            'committed', 'marker_published', 'terminal',
+        }:
+            return
+        self._object_reference_projection_count += 1
+        if self._object_reference_state == 'initial_observation':
+            required = int(
+                self.get_parameter(
+                    'object_reference_initial_observations'
+                ).value
+            )
+            if self._object_reference_projection_count < required:
+                return
+            resolution = self._rank_object_reference()
+            self._object_reference_resolution = resolution
+            self._maybe_request_targeted_viewpoint(resolution)
+            return
+        if (
+            self._object_reference_state == 'optional_reobservation'
+            and self._waypoint_executor.state is WaypointExecutorState.COMPLETE
+            and self._object_reference_projection_count
+            > self._object_reference_reobservation_start
+        ):
+            resolution = self._rank_object_reference()
+            self._object_reference_resolution = resolution
+            self._trace(
+                event='object_reference_final_ranking',
+                selected_action='commit_after_one_reobservation',
+                selection_reason='one_viewpoint_maximum_reached',
+                details=resolution.to_dict(),
+            )
+            self._commit_object_reference_answer(resolution)
+
+    def _rank_object_reference(self):
+        task = self._task_specification
+        if task is None:
+            raise RuntimeError('object-reference task is unavailable')
+        resolution = resolve_object_reference_from_maps(
+            task,
+            self._object_map,
+            self._structural_map,
+            candidate_config=self._reasoning_candidate_config,
+            spatial_config=self._reasoning_spatial_config,
+            vertical_config=self._relation_graph.vertical_config,
+            support_config=self._relation_graph.support_config,
+            ambiguity_config=self._reasoning_ambiguity_config,
+        )
+        self._trace(
+            event='object_reference_ranking',
+            selected_action='rank_persistent_targets',
+            selection_reason='complete_constraint_scoring',
+            details=resolution.to_dict(),
+        )
+        return resolution
+
+    def _maybe_request_targeted_viewpoint(self, resolution) -> None:
+        missing = tuple(
+            entity.entity_id
+            for entity in self._task_specification.entities[1:]
+            if not resolution.candidate_generation[entity.entity_id].retained
+        )
+        selected = resolution.selected_target_id
+        geometry_confidence = None
+        if selected is not None and selected.isdigit():
+            geometry_confidence = self._object_map.record(
+                int(selected)
+            ).geometry_confidence
+        evidence = EvidenceSufficiency(
+            reliable_target_candidates=len(
+                resolution.ranked_hypotheses
+            ),
+            missing_anchor_ids=missing,
+            confidence_margin=resolution.normalized_margin,
+            geometry_confidence=geometry_confidence,
+            likely_occluded=False,
+            time_remaining_sec=max(
+                0.0, self._episode_time_limit - self._elapsed()
+            ),
+            viewpoint_attempts=int(
+                self._object_reference_viewpoint_guard.attempted
+            ),
+        )
+        policy = self._targeted_viewpoint_config()
+        from qmapnav.navigation import decide_targeted_viewpoint
+        decision = decide_targeted_viewpoint(evidence, policy)
+        self._object_reference_viewpoint_reason = decision.reason
+        if not decision.requested or self._latest_pose_xy is None:
+            self._commit_object_reference_answer(resolution)
+            return
+        focus = self._object_reference_focus_xy(resolution)
+        heading = self._latest_heading()
+        candidates = generate_targeted_viewpoints(
+            (*self._latest_pose_xy, heading),
+            focus,
+            anchor_missing=bool(missing),
+            ambiguous=(resolution.resolution_status == 'ambiguous'),
+            safe_pose=lambda x, y: self._scan_accumulator.is_known_free(
+                x,
+                y,
+                clearance=float(
+                    self.get_parameter(
+                        'targeted_viewpoint_clearance_m'
+                    ).value
+                ),
+            ),
+            config=policy,
+        )
+        viewpoint = self._object_reference_viewpoint_guard.select(candidates)
+        if viewpoint is None:
+            self._trace(
+                event='targeted_viewpoint_skipped',
+                selected_action='commit_initial_ranking',
+                selection_reason='no_safe_reachable_viewpoint',
+                details={'trigger_reason': decision.reason},
+            )
+            self._commit_object_reference_answer(resolution)
+            return
+        self._object_reference_selected_viewpoint = viewpoint
+        self._object_reference_reobservation_start = (
+            self._object_reference_projection_count
+        )
+        self._object_reference_state = 'optional_reobservation'
+        self._trace(
+            event='targeted_viewpoint_selected',
+            selected_action='execute_one_reobservation',
+            selection_reason=decision.reason,
+            details={
+                'pose_xy_heading': viewpoint.pose_xy_heading,
+                'utility': viewpoint.utility,
+                'travel_cost_m': viewpoint.travel_cost_m,
+                'candidate_count': len(candidates),
+            },
+        )
+        self.start_route([Waypoint2D(*viewpoint.pose_xy_heading)])
+
+    def _object_reference_focus_xy(self, resolution):
+        selected = resolution.selected_target_id
+        if selected is not None and selected.isdigit():
+            centre = self._object_map.get(int(selected)).centroid_xyz
+            return float(centre[0]), float(centre[1])
+        for entity in self._task_specification.entities[1:]:
+            generated = resolution.candidate_generation[entity.entity_id]
+            for item in generated.retained:
+                if item.geometry is not None:
+                    centre = item.geometry.centre_xyz
+                    return float(centre[0]), float(centre[1])
+        heading = self._latest_heading()
+        return (
+            float(self._latest_pose_xy[0] + 2.0 * np.cos(heading)),
+            float(self._latest_pose_xy[1] + 2.0 * np.sin(heading)),
+        )
+
+    def _latest_heading(self) -> float:
+        pose = self._latest_timed_pose
+        if pose is None:
+            return 0.0
+        orientation = pose.orientation_xyzw
+        return atan2(
+            2.0 * (
+                orientation[3] * orientation[2]
+                + orientation[0] * orientation[1]
+            ),
+            1.0 - 2.0 * (orientation[1] ** 2 + orientation[2] ** 2),
+        )
+
+    def _commit_object_reference_answer(self, resolution) -> None:
+        if self._object_reference_state in {'committed', 'marker_published'}:
+            return
+        self._object_reference_state = 'committed'
+        selected = None if resolution is None else resolution.selected_target_id
+        marker_errors = ('missing_target_candidate',)
+        marker_spec = None
+        if selected is not None and selected.isdigit():
+            try:
+                if self._final_marker_guard.committed:
+                    raise RuntimeError('final object marker already committed')
+                instance = self._object_map.get(int(selected))
+                answer = self._final_object_answer_guard.commit(
+                    instance,
+                    timestamp_ns=self.get_clock().now().nanoseconds,
+                )
+                marker_spec = answer.marker
+                marker_errors = validate_marker_spec(marker_spec)
+            except (KeyError, RuntimeError, TypeError, ValueError) as error:
+                marker_errors = (f'commit_failed:{error}',)
+        protocol_valid = marker_spec is not None and not marker_errors
+        self._object_reference_state = (
+            'marker_published' if protocol_valid else 'terminal'
+        )
+        self._trace(
+            event='official_object_answer_committed',
+            selected_action=(
+                'publish_marker_and_matching_waypoint'
+                if protocol_valid else 'log_no_valid_marker_response'
+            ),
+            selection_reason=(
+                'final_persistent_target_snapshot'
+                if protocol_valid else 'no_publishable_persistent_target'
+            ),
+            terminal_status=(
+                'complete' if protocol_valid else 'protocol_failure'
+            ),
+            details={
+                'selected_target_id': selected,
+                'marker_errors': marker_errors,
+                'targeted_viewpoint_used': (
+                    self._object_reference_selected_viewpoint is not None
+                ),
+            },
+        )
+        self._write_object_reference_result(
+            resolution, marker_spec, marker_errors, protocol_valid
+        )
+
+    def _write_object_reference_result(
+        self,
+        resolution,
+        marker_spec,
+        marker_errors,
+        protocol_valid,
+    ) -> None:
+        task = self._task_specification
+        target = task.entities[0]
+        generated = resolution.candidate_generation if resolution else {}
+        target_generated = generated.get(target.entity_id)
+        target_count = (
+            len(target_generated.retained) if target_generated else 0
+        )
+        anchors_available = all(
+            generated.get(entity.entity_id) is not None
+            and bool(generated[entity.entity_id].retained)
+            for entity in task.entities[1:]
+        )
+        evidence = StageEvidence(
+            parser_correct=True,
+            target_observed=None,
+            target_detected=target_count > 0,
+            anchors_available=anchors_available,
+            target_lifted=(
+                resolution is not None
+                and resolution.selected_target_id is not None
+            ),
+            identity_correct=None,
+            colour_correct=None,
+            relation_correct=None,
+            target_selected_correctly=None,
+            obb_acceptable=(None if marker_spec is None else not marker_errors),
+            protocol_valid=protocol_valid,
+            detail={
+                'target_subtype': (
+                    None if target_count else 'not_available_to_reasoning'
+                ),
+                'anchor_subtype': (
+                    None if anchors_available else 'anchor_unavailable'
+                ),
+                'protocol_subtype': (
+                    None if protocol_valid else 'no_valid_final_marker'
+                ),
+            },
+        )
+        failure = classify_primary_failure(evidence)
+        ranked = resolution.ranked_hypotheses if resolution else ()
+        duration = max(
+            0.0,
+            self._now() - (
+                self._object_reference_started_at or self._now()
+            ),
+        )
+        directory = Path(str(
+            self.get_parameter('object_reference_result_directory').value
+        ))
+        case_id = str(self.get_parameter('object_reference_case_id').value)
+        scene_id = str(self.get_parameter('object_reference_scene_id').value)
+        run_id = str(self.get_parameter('object_reference_run_id').value)
+        result = ObjectReferenceEpisodeResult(
+            run_id=run_id,
+            case_id=case_id,
+            scene_id=scene_id,
+            question=self._question_latch.active_question or '<unknown>',
+            pipeline_mode='perceived',
+            episode_status=(
+                'protocol_failure' if not protocol_valid else (
+                    'completed_with_fallback'
+                    if resolution and resolution.used_fallback
+                    else 'completed'
+                )
+            ),
+            parser_mode=task.parse_mode,
+            task_specification=task_specification_data(task),
+            requested_classes=tuple(
+                item.canonical_name
+                for item in detector_classes_from_task_specification(task)
+            ),
+            stage_evidence=evidence,
+            target_detections=target_count,
+            anchor_detections={
+                entity.class_name: len(
+                    generated[entity.entity_id].retained
+                ) if entity.entity_id in generated else 0
+                for entity in task.entities[1:]
+            },
+            object_candidates_3d=(
+                len(self._latest_lifting_frame.candidates)
+                if self._latest_lifting_frame is not None else 0
+            ),
+            lifting_results=(
+                () if self._latest_lifting_frame is None else tuple(
+                    {
+                        'detection_id': item.detection_id,
+                        'status': item.status.value,
+                        'reason': item.reason,
+                        'counts': asdict(item.counts),
+                        'processing_time_ms': item.processing_time_ms,
+                    }
+                    for item in self._latest_lifting_frame.results
+                )
+            ),
+            persistent_instances=len(self._object_map.active_instances()),
+            fusion_events=tuple(self._object_reference_fusion_events),
+            ranked_target_ids=tuple(item.target_id for item in ranked),
+            ranked_target_scores=tuple(item.score for item in ranked),
+            ranked_score_components=tuple(item.to_dict() for item in ranked),
+            confidence_margin=(
+                resolution.confidence_margin if resolution else None
+            ),
+            unresolved_constraints=(
+                resolution.unresolved_constraints if resolution else ()
+            ),
+            selected_target_id=(
+                resolution.selected_target_id if resolution else None
+            ),
+            predicted_box=(
+                None if marker_spec is None else {
+                    'frame_id': marker_spec.frame_id,
+                    'centre_xyz': marker_spec.centre_xyz,
+                    'orientation_xyzw': marker_spec.orientation_xyzw,
+                    'dimensions_xyz': marker_spec.dimensions_xyz,
+                }
+            ),
+            marker_validation_errors=tuple(marker_errors),
+            marker_published=protocol_valid,
+            marker_publish_count=int(protocol_valid),
+            marker_publish_time_sec=(duration if protocol_valid else None),
+            matching_waypoint_published=(
+                protocol_valid and bool(self.get_parameter(
+                    'publish_object_matching_waypoint'
+                ).value)
+            ),
+            targeted_viewpoint_used=(
+                self._object_reference_selected_viewpoint is not None
+            ),
+            targeted_viewpoint_reason=self._object_reference_viewpoint_reason,
+            targeted_viewpoint_pose=(
+                None if self._object_reference_selected_viewpoint is None
+                else self._object_reference_selected_viewpoint.pose_xy_heading
+            ),
+            primary_failure_category=failure.category,
+            failure_subtype=failure.subtype,
+            failure_detail=failure.detail,
+            episode_duration_sec=duration,
+            trace_path=str(self.get_parameter('trace_path').value),
+            evidence_directory=str(directory),
+            final_response_logged=True,
+            proxy_score=(
+                0.25 + 0.50 * float(target_count > 0)
+                + 0.25 * float(anchors_available)
+                + 1.0 * float(protocol_valid)
+            ),
+        )
+        _atomic_write_json(directory / 'episode_result.json', result.to_dict())
+        _atomic_write_json(
+            directory / 'candidate_ranking.json',
+            {} if resolution is None else resolution.to_dict(),
+        )
+        _atomic_write_json(
+            directory / 'task_specification.json',
+            task_specification_data(task),
+        )
+
+    def _targeted_viewpoint_config(self) -> TargetedViewpointConfig:
+        return TargetedViewpointConfig(
+            minimum_confidence_margin=float(self.get_parameter(
+                'targeted_viewpoint_minimum_margin'
+            ).value),
+            minimum_geometry_confidence=float(self.get_parameter(
+                'targeted_viewpoint_minimum_geometry_confidence'
+            ).value),
+            minimum_time_remaining_sec=float(self.get_parameter(
+                'targeted_viewpoint_minimum_time_remaining'
+            ).value),
+            preferred_standoff_m=float(self.get_parameter(
+                'targeted_viewpoint_standoff_m'
+            ).value),
+            lateral_offset_m=float(self.get_parameter(
+                'targeted_viewpoint_lateral_offset_m'
+            ).value),
+            maximum_travel_m=float(self.get_parameter(
+                'targeted_viewpoint_maximum_travel_m'
+            ).value),
+        )
+
+    def _publish_matching_object_waypoint(
+        self,
+        pose_xy_heading: tuple[float, float, float],
+    ) -> None:
+        message = Pose2D()
+        message.x, message.y, message.theta = pose_xy_heading
+        self._waypoint_publisher.publish(message)
 
     def start_route(self, route: Iterable[Waypoint2D]) -> None:
         """Start a route and publish exactly its first active waypoint."""
@@ -463,6 +915,21 @@ class QMapNavNode(Node):
                     'task_specification': asdict(self._task_specification),
                 },
             )
+            if self._task_specification.task_type == 'object_reference':
+                self._object_reference_state = 'initial_observation'
+                self._object_reference_projection_count = 0
+                self._object_reference_reobservation_start = 0
+                self._object_reference_resolution = None
+                self._object_reference_viewpoint_guard = OneViewpointGuard()
+                self._object_reference_viewpoint_reason = None
+                self._object_reference_selected_viewpoint = None
+                self._object_reference_started_at = self._now()
+                self._object_reference_fusion_events.clear()
+                self._trace(
+                    event='object_reference_episode_started',
+                    selected_action='collect_initial_evidence',
+                    selection_reason='object_reference_task_latched',
+                )
             self.get_logger().info('Accepted challenge question')
         elif decision.status is QuestionLatchStatus.DUPLICATE:
             self._trace(
@@ -538,10 +1005,40 @@ class QMapNavNode(Node):
     def _on_watchdog(self) -> None:
         if self._expire_episode_if_needed():
             return
+        if (
+            self._object_reference_state not in {
+                'idle', 'committed', 'marker_published', 'terminal',
+            }
+            and self._episode_time_limit - self._elapsed()
+            <= float(self.get_parameter(
+                'object_reference_final_commit_reserve_sec'
+            ).value)
+        ):
+            self._trace(
+                event='object_reference_deadline_commit',
+                selected_action='commit_best_available_target',
+                selection_reason='final_response_reserve_reached',
+            )
+            self._commit_object_reference_answer(
+                self._object_reference_resolution
+            )
+            return
         goal = self._waypoint_executor.tick(now=self._now())
         if goal is not None:
             self._publish_waypoint(goal)
         self._record_executor_events()
+        if (
+            self._object_reference_state == 'optional_reobservation'
+            and self._waypoint_executor.state is WaypointExecutorState.FAILED
+        ):
+            self._trace(
+                event='targeted_viewpoint_failed',
+                selected_action='commit_initial_ranking',
+                selection_reason='bounded_waypoint_execution_failed',
+            )
+            self._commit_object_reference_answer(
+                self._object_reference_resolution
+            )
 
     def _on_registered_scan(self, message: PointCloud2) -> None:
         if self._expire_episode_if_needed():
@@ -739,6 +1236,7 @@ class QMapNavNode(Node):
             },
         )
         self._save_projection_debug(result, lifting)
+        self._advance_object_reference_episode()
 
     def _update_persistent_maps(
         self,
@@ -806,6 +1304,7 @@ class QMapNavNode(Node):
                 instance_ids,
             )
             for event in self._object_map.last_events:
+                self._object_reference_fusion_events.append(event.to_dict())
                 self._trace(
                     event='object_association',
                     selected_action=event.decision,
@@ -1670,6 +2169,12 @@ class QMapNavNode(Node):
         if hold_goal is not None:
             self._publish_waypoint(hold_goal)
         self._record_executor_events()
+        if self._object_reference_state not in {
+            'idle', 'committed', 'marker_published', 'terminal',
+        }:
+            self._commit_object_reference_answer(
+                self._object_reference_resolution
+            )
         return True
 
     def _create_trace_recorder(self) -> JsonlDecisionTraceRecorder:
@@ -1697,6 +2202,31 @@ class QMapNavNode(Node):
         self.declare_parameter('recovery_offset_distance', 0.75)
         self.declare_parameter('recovery_clearance', 0.35)
         self.declare_parameter('episode_time_limit', 600.0)
+        self.declare_parameter('publish_object_matching_waypoint', True)
+        self.declare_parameter('object_reference_initial_observations', 3)
+        self.declare_parameter(
+            'object_reference_final_commit_reserve_sec', 30.0
+        )
+        self.declare_parameter(
+            'object_reference_result_directory',
+            '/tmp/qmapnav/object_reference',
+        )
+        self.declare_parameter(
+            'object_reference_case_id', 'runtime_object_reference'
+        )
+        self.declare_parameter('object_reference_scene_id', 'unknown')
+        self.declare_parameter('object_reference_run_id', 'runtime')
+        self.declare_parameter('targeted_viewpoint_minimum_margin', 0.12)
+        self.declare_parameter(
+            'targeted_viewpoint_minimum_geometry_confidence', 0.35
+        )
+        self.declare_parameter(
+            'targeted_viewpoint_minimum_time_remaining', 45.0
+        )
+        self.declare_parameter('targeted_viewpoint_standoff_m', 2.0)
+        self.declare_parameter('targeted_viewpoint_lateral_offset_m', 0.8)
+        self.declare_parameter('targeted_viewpoint_maximum_travel_m', 4.0)
+        self.declare_parameter('targeted_viewpoint_clearance_m', 0.35)
         self.declare_parameter('scan_frame', 'map')
         self.declare_parameter('scan_voxel_size', 0.20)
         self.declare_parameter('scan_max_range', 30.0)
@@ -1975,6 +2505,20 @@ def _best_crop_score(
         + 0.10 * support_score
     )
     return min(1.0, max(0.0, float(score)))
+
+
+def _atomic_write_json(path: Path, payload: object) -> None:
+    """Write one bounded diagnostic JSON file without partial replacement."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'.{path.name}.tmp')
+    try:
+        with temporary.open('w', encoding='utf-8') as stream:
+            json.dump(payload, stream, indent=2, sort_keys=True)
+            stream.write('\n')
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def main(args: list[str] | None = None) -> None:

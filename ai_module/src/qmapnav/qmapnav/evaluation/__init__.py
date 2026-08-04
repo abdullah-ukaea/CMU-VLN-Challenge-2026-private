@@ -52,6 +52,31 @@ from qmapnav.evaluation.metrics import semantic_route_metric
 from qmapnav.evaluation.metrics import SemanticRouteMetric
 from qmapnav.evaluation.metrics import terminal_goal_distance
 from qmapnav.evaluation.metrics import TimingMetric
+from qmapnav.evaluation.object_reference_contracts import (
+    build_object_reference_manifest,
+)
+from qmapnav.evaluation.object_reference_contracts import manifest_digest
+from qmapnav.evaluation.object_reference_contracts import ObjectReferenceCase
+from qmapnav.evaluation.object_reference_contracts import (
+    ObjectReferenceEpisodeResult,
+)
+from qmapnav.evaluation.object_reference_contracts import StageEvidence
+from qmapnav.evaluation.object_reference_failures import (
+    classify_primary_failure,
+)
+from qmapnav.evaluation.object_reference_failures import FailureClassification
+from qmapnav.evaluation.object_reference_failures import FixCandidate
+from qmapnav.evaluation.object_reference_failures import rank_fix_candidates
+from qmapnav.evaluation.object_reference_runner import (
+    ObjectReferenceBenchmarkRun,
+)
+from qmapnav.evaluation.object_reference_runner import (
+    ObjectReferenceBenchmarkRunner,
+)
+from qmapnav.evaluation.object_reference_runner import (
+    ObjectReferenceBenchmarkSummary,
+)
+from qmapnav.evaluation.object_reference_runner import write_episode_result
 from qmapnav.evaluation.trace import DecisionTraceEvent
 from qmapnav.evaluation.trace import InMemoryTraceRecorder
 from qmapnav.evaluation.trace import JsonlDecisionTraceRecorder
@@ -72,6 +97,11 @@ __all__ = [
     'JsonlDecisionTraceRecorder',
     'ForbiddenRegionMetric',
     'ObjectSelectionMetric',
+    'ObjectReferenceBenchmarkRun',
+    'ObjectReferenceBenchmarkRunner',
+    'ObjectReferenceBenchmarkSummary',
+    'ObjectReferenceCase',
+    'ObjectReferenceEpisodeResult',
     'OracleObject',
     'OracleRegion',
     'OracleRelation',
@@ -94,6 +124,8 @@ __all__ = [
     'evaluate_anchor_stability',
     'evaluate_fusion_geometry',
     'evaluate_identity_assignments',
+    'FailureClassification',
+    'FixCandidate',
     'FusionGeometryMetrics',
     'load_detector_dataset',
     'roll_visible_instance',
@@ -113,10 +145,16 @@ __all__ = [
     'load_vla3d_objects',
     'load_vla3d_regions',
     'load_vla3d_relations',
+    'build_object_reference_manifest',
+    'classify_primary_failure',
+    'manifest_digest',
     'merge_unity_and_vla_objects',
     'object_selection_metric',
     'relation_metrics',
     'required_region_metrics',
+    'rank_fix_candidates',
+    'StageEvidence',
+    'write_episode_result',
     'semantic_route_metric',
     'terminal_goal_distance',
 ]

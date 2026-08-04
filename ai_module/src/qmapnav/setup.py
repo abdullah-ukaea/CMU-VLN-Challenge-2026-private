@@ -38,6 +38,8 @@ setup(
     entry_points={
         'console_scripts': [
             'qmapnav_benchmark = qmapnav.evaluation.benchmark_runner:main',
+            'qmapnav_object_benchmark = '
+            'qmapnav.evaluation.object_reference_replay:main',
             'qmapnav_node = qmapnav.mission.node:main',
         ],
     },
