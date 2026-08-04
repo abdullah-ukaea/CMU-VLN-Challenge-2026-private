@@ -77,6 +77,14 @@ def test_node_uses_only_permitted_official_topics(node: object) -> None:
     assert not node._final_marker_guard.committed
 
 
+def test_node_loads_day9_policy_and_system_robot_footprint(node: object) -> None:
+    assert node._reasoning_candidate_config.minimum_class_probability == 0.15
+    assert node._reasoning_spatial_config.near_size_scale == 0.75
+    assert node._reasoning_ambiguity_config.resolved_minimum_margin == 0.12
+    assert node._reasoning_corridor_config.robot_width_m == 0.55
+    assert node._reasoning_corridor_config.safety_clearance_m == 0.15
+
+
 def test_colour_support_crop_keeps_own_mask_and_cluster_coordinates() -> None:
     from qmapnav.mission.node import _crop_colour_support
     from qmapnav.perception.contracts import Detection2D

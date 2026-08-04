@@ -95,6 +95,8 @@ from qmapnav.perception.contracts import Detection2D
 from qmapnav.perception.contracts import PerceptionRequest
 from qmapnav.perception.panorama_projection import PanoramaCameraModel
 from qmapnav.perception.vocabulary import detector_classes_from_task_specification
+from qmapnav.reasoning.ambiguity import AmbiguityConfig
+from qmapnav.reasoning.candidate_generation import CandidateGenerationConfig
 from qmapnav.reasoning.colour_classifier import classify_colour
 from qmapnav.reasoning.colour_classifier import ColourClassifierConfig
 from qmapnav.reasoning.colour_features import extract_colour_features
@@ -103,7 +105,9 @@ from qmapnav.reasoning.colour_pixel_filter import filter_reliable_pixels
 from qmapnav.reasoning.colour_pixel_filter import select_object_pixels
 from qmapnav.reasoning.colour_prototypes import load_colour_prototypes
 from qmapnav.reasoning.colour_types import ColourEstimate
+from qmapnav.reasoning.corridor_evaluation import CorridorConfig
 from qmapnav.reasoning.relation_graph import RelationGraph
+from qmapnav.reasoning.spatial_relations import SpatialRelationConfig
 from qmapnav.reasoning.support_geometry import support_geometry
 from qmapnav.reasoning.support_relations import SupportRelationConfig
 from qmapnav.reasoning.vertical_relations import VerticalRelationConfig
@@ -190,6 +194,12 @@ class QMapNavNode(Node):
             self._colour_prototype_path()
         )
         self._relation_graph = self._create_relation_graph()
+        (
+            self._reasoning_candidate_config,
+            self._reasoning_spatial_config,
+            self._reasoning_ambiguity_config,
+            self._reasoning_corridor_config,
+        ) = self._create_day9_reasoning_configs()
         self._trace_recorder = trace_recorder or self._create_trace_recorder()
         self._waypoint_executor = SequentialWaypointExecutor(
             arrival_radius=float(self.get_parameter('arrival_radius').value),
@@ -1548,6 +1558,71 @@ class QMapNavNode(Node):
             ),
         )
 
+    def _create_day9_reasoning_configs(self):
+        """Load all Day 9 thresholds, including the system robot width."""
+        candidate = CandidateGenerationConfig(
+            minimum_class_probability=float(self.get_parameter(
+                'reasoning_minimum_class_probability'
+            ).value),
+            minimum_colour_probability=float(self.get_parameter(
+                'reasoning_minimum_colour_probability'
+            ).value),
+            minimum_geometry_confidence=float(self.get_parameter(
+                'reasoning_minimum_geometry_confidence'
+            ).value),
+        )
+        spatial = SpatialRelationConfig(
+            minimum_geometry_confidence=(
+                candidate.minimum_geometry_confidence
+            ),
+            near_base_margin_m=float(self.get_parameter(
+                'reasoning_near_base_margin_m'
+            ).value),
+            near_size_scale=float(self.get_parameter(
+                'reasoning_near_size_scale'
+            ).value),
+            between_projection_tolerance=float(self.get_parameter(
+                'reasoning_between_projection_tolerance'
+            ).value),
+            between_max_relative_perpendicular_distance=float(
+                self.get_parameter(
+                    'reasoning_between_max_relative_perpendicular_distance'
+                ).value
+            ),
+            between_min_anchor_separation_m=float(self.get_parameter(
+                'reasoning_between_min_anchor_separation_m'
+            ).value),
+        )
+        ambiguity = AmbiguityConfig(
+            resolved_minimum_score=float(self.get_parameter(
+                'reasoning_resolved_minimum_score'
+            ).value),
+            resolved_minimum_margin=float(self.get_parameter(
+                'reasoning_resolved_minimum_margin'
+            ).value),
+            ambiguous_margin=float(self.get_parameter(
+                'reasoning_ambiguous_margin'
+            ).value),
+        )
+        corridor = CorridorConfig(
+            robot_width_m=float(
+                self.get_parameter('robot_footprint_width_m').value
+            ),
+            safety_clearance_m=float(self.get_parameter(
+                'corridor_safety_clearance_m'
+            ).value),
+            minimum_depth_m=float(self.get_parameter(
+                'corridor_minimum_depth_m'
+            ).value),
+            occupancy_free_fraction=float(self.get_parameter(
+                'corridor_occupancy_free_fraction'
+            ).value),
+            maximum_anchor_separation_m=float(self.get_parameter(
+                'corridor_maximum_anchor_separation_m'
+            ).value),
+        )
+        return candidate, spatial, ambiguity, corridor
+
     def _create_structural_map(self) -> StructuralMap:
         wall_config = WallExtractionConfig(
             min_height_above_ground_m=float(self.get_parameter(
@@ -1712,6 +1787,30 @@ class QMapNavNode(Node):
         self.declare_parameter('relation_accept_on_confidence', 0.70)
         self.declare_parameter('relation_uncertain_on_confidence', 0.40)
         self.declare_parameter('relation_include_floor_supports', False)
+        self.declare_parameter('reasoning_minimum_class_probability', 0.15)
+        self.declare_parameter('reasoning_minimum_colour_probability', 0.10)
+        self.declare_parameter('reasoning_minimum_geometry_confidence', 0.20)
+        self.declare_parameter('reasoning_near_base_margin_m', 0.40)
+        self.declare_parameter('reasoning_near_size_scale', 0.75)
+        self.declare_parameter(
+            'reasoning_between_projection_tolerance', 0.05
+        )
+        self.declare_parameter(
+            'reasoning_between_max_relative_perpendicular_distance', 0.35
+        )
+        self.declare_parameter(
+            'reasoning_between_min_anchor_separation_m', 0.30
+        )
+        self.declare_parameter('reasoning_resolved_minimum_score', 0.65)
+        self.declare_parameter('reasoning_resolved_minimum_margin', 0.12)
+        self.declare_parameter('reasoning_ambiguous_margin', 0.08)
+        self.declare_parameter('robot_footprint_width_m', 0.55)
+        self.declare_parameter('corridor_safety_clearance_m', 0.15)
+        self.declare_parameter('corridor_minimum_depth_m', 0.60)
+        self.declare_parameter('corridor_occupancy_free_fraction', 0.90)
+        self.declare_parameter(
+            'corridor_maximum_anchor_separation_m', 5.0
+        )
         self.declare_parameter('structural_wall_update_interval', 10)
         self.declare_parameter('wall_min_height_above_ground', 0.20)
         self.declare_parameter('wall_min_segment_length', 0.50)
