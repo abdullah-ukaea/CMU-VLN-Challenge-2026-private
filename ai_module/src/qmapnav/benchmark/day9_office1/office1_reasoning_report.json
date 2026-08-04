@@ -1,0 +1,108 @@
+{
+  "chair_candidate_count": 12,
+  "chair_pair_count": 66,
+  "chair_window_combinations": 12,
+  "closest": {
+    "anchor_id": "6",
+    "distance_m": 0.941414539944521,
+    "normalized_margin": 0.4352213000993861,
+    "raw_margin": 0.7254587690974211,
+    "status": "resolved",
+    "target_id": "49"
+  },
+  "diagnostics": {
+    "candidate_scores_csv": "/output/candidate_scores.csv",
+    "corridor_json": "/output/corridor_hypotheses.json",
+    "resolution_json": "/output/reference_resolution.json",
+    "top_down_png": "/output/top_down_relations.png"
+  },
+  "farthest": {
+    "anchor_id": "6",
+    "distance_m": 4.336106875979875,
+    "normalized_margin": 0.15725364809627781,
+    "raw_margin": 0.6818686249404435,
+    "target_id": "68"
+  },
+  "near_score_range": [
+    3.3724304218005897e-10,
+    0.9826018669442832
+  ],
+  "scene_id": "office_1",
+  "source_object_count": 112,
+  "table_pair_count": 1,
+  "table_pairs": [
+    {
+      "approach_reachable": true,
+      "blocker_ids": [],
+      "exit_reachable": true,
+      "gate": {
+        "boundary_first_xy": [
+          -1.3126644416897317,
+          -2.3923007072906683
+        ],
+        "boundary_second_xy": [
+          1.4148316915158108,
+          -2.3919846912765212
+        ],
+        "centre_xy": [
+          0.05108362491303953,
+          -2.392142699283595
+        ],
+        "crossing_direction_xy": [
+          -0.014766056540847141,
+          0.9998909758439829
+        ],
+        "depth_m": 0.6,
+        "pair_ids": [
+          "50",
+          "53"
+        ],
+        "polygon_xy": [
+          [
+            0.330483460232389,
+            -2.6880493264880565
+          ],
+          [
+            0.3216238263078807,
+            -2.088114740981667
+          ],
+          [
+            -0.22831621040630995,
+            -2.096236072079133
+          ],
+          [
+            -0.21945657648180167,
+            -2.6961706575855224
+          ]
+        ],
+        "width_m": 2.7274961515128315,
+        "yaw_rad": 1.5855629199780974
+      },
+      "occupancy_free_fraction": 1.0,
+      "pair": {
+        "centre_distance_m": 4.698510964745472,
+        "class_name": "table",
+        "confidence": 1.0,
+        "corridor_width_m": 2.7274961515128315,
+        "evidence": {
+          "anchor_separation_m": 4.698510964745472,
+          "approach_reachable": 1.0,
+          "blocker_count": 0.0,
+          "exit_reachable": 1.0,
+          "minimum_traversable_width_m": 0.8500000000000001,
+          "occupancy_free_fraction": 1.0
+        },
+        "first_id": "50",
+        "footprint_gap_m": 2.7274961023843654,
+        "score": 0.9999999999999999,
+        "second_id": "53",
+        "traversable": true
+      },
+      "reasons": [
+        "traversable_gate"
+      ]
+    }
+  ],
+  "traversable_table_pair_count": 1,
+  "window_candidate_count": 1
+}
