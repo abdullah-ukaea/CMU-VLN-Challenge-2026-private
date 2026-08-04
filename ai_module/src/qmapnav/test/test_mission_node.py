@@ -60,6 +60,11 @@ def test_node_uses_only_permitted_official_topics(node: object) -> None:
     assert node._scan_subscription.topic_name == '/registered_scan'
     assert node._image_subscription.topic_name == '/camera/image'
     assert node._waypoint_publisher.topic_name == '/way_point_with_heading'
+    assert node._candidate_marker_publisher.topic_name == (
+        '/qmapnav/debug/object_candidates'
+    )
+    assert node._official_marker_publisher.topic_name == '/selected_object_marker'
+    assert not node._final_marker_guard.committed
 
 
 @pytest.mark.parametrize('encoding', ['rgb8', 'bgr8'])

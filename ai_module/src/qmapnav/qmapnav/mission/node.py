@@ -33,15 +33,33 @@ from qmapnav.mapping import ScanAccumulatorConfig
 from qmapnav.mapping import TimedPanorama
 from qmapnav.mapping import TimedPose
 from qmapnav.mapping import TimedRegisteredScan
+from qmapnav.mapping.bounding_boxes import BoxEstimationConfig
+from qmapnav.mapping.cluster_selection import ClusterSelectionConfig
+from qmapnav.mapping.depth_filter import DepthFilterConfig
+from qmapnav.mapping.lifting_pipeline import Day6LiftingPipeline
+from qmapnav.mapping.lifting_pipeline import LiftingFrame
+from qmapnav.mapping.lifting_visualisation import draw_candidate_orthographic
+from qmapnav.mapping.lifting_visualisation import draw_depth_histogram
+from qmapnav.mapping.lifting_visualisation import draw_lifting_stage_overlay
+from qmapnav.mapping.object_candidate import GeometrySource
+from qmapnav.mapping.object_candidate import ObjectCandidate3D
+from qmapnav.mapping.object_lifting import ObjectLifter
+from qmapnav.mapping.object_lifting import ObjectLiftingConfig
+from qmapnav.mapping.orientation_confidence import OrientationConfidenceConfig
 from qmapnav.mapping.point_cloud import decode_scan_arrays
 from qmapnav.mapping.point_cloud import ScanArrays
 from qmapnav.mapping.point_cloud import stamp_to_nanoseconds
+from qmapnav.mapping.point_selection import PointSelectionConfig
 from qmapnav.mapping.projection_regression import save_projection_regression_case
 from qmapnav.mapping.projection_visualisation import draw_detection_projection_overlay
 from qmapnav.mapping.projection_visualisation import draw_projection_overlay
 from qmapnav.mapping.projection_visualisation import draw_top_down_projection
 from qmapnav.mapping.transforms import make_transform
 from qmapnav.mapping.transforms import quaternion_xyzw_to_rotation
+from qmapnav.mission.marker_adapter import candidate_marker_array
+from qmapnav.mission.marker_adapter import CANDIDATE_MARKER_TOPIC
+from qmapnav.mission.marker_adapter import FinalMarkerGuard
+from qmapnav.mission.marker_adapter import OFFICIAL_MARKER_TOPIC
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
 from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
@@ -64,6 +82,8 @@ from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
+from visualization_msgs.msg import Marker
+from visualization_msgs.msg import MarkerArray
 
 
 class QMapNavNode(Node):
@@ -75,6 +95,7 @@ class QMapNavNode(Node):
         *,
         scan_accumulator: RegisteredScanAccumulator | None = None,
         projection_pipeline: Day5ProjectionPipeline | None = None,
+        lifting_pipeline: Day6LiftingPipeline | None = None,
         perception_worker: object | None = None,
         trace_recorder: TraceRecorder | None = None,
         point_cloud_decoder: Callable[[object], object] = decode_scan_arrays,
@@ -108,6 +129,7 @@ class QMapNavNode(Node):
         self._trace_closed = False
         self._projection_lock = RLock()
         self._latest_projection_frame: ProjectionFrame | None = None
+        self._latest_lifting_frame: LiftingFrame | None = None
         self._perception_worker = perception_worker
         self._processed_image_ids: deque[str] = deque(maxlen=128)
         self._processed_image_id_set: set[str] = set()
@@ -118,6 +140,9 @@ class QMapNavNode(Node):
         self._scan_accumulator = scan_accumulator or self._create_accumulator()
         self._projection_pipeline = (
             projection_pipeline or self._create_projection_pipeline()
+        )
+        self._lifting_pipeline = (
+            lifting_pipeline or self._create_lifting_pipeline()
         )
         self._trace_recorder = trace_recorder or self._create_trace_recorder()
         self._waypoint_executor = SequentialWaypointExecutor(
@@ -167,13 +192,26 @@ class QMapNavNode(Node):
             '/way_point_with_heading',
             5,
         )
+        self._candidate_marker_publisher = self.create_publisher(
+            MarkerArray,
+            CANDIDATE_MARKER_TOPIC,
+            5,
+        )
+        self._official_marker_publisher = self.create_publisher(
+            Marker,
+            OFFICIAL_MARKER_TOPIC,
+            5,
+        )
+        self._final_marker_guard = FinalMarkerGuard(
+            self._official_marker_publisher.publish
+        )
         self._watchdog_timer = self.create_timer(
             float(self.get_parameter('watchdog_period').value),
             self._on_watchdog,
         )
         self._trace(
             event='node_initialized',
-            selection_reason='day_5_runtime_ready',
+            selection_reason='day_6_lifting_runtime_ready',
             details={
                 'executor': {
                     'arrival_radius': self._waypoint_executor.arrival_radius,
@@ -230,6 +268,25 @@ class QMapNavNode(Node):
         """Return the latest immutable Day 5 projection result."""
         with self._projection_lock:
             return self._latest_projection_frame
+
+    @property
+    def latest_lifting_frame(self) -> LiftingFrame | None:
+        """Return the latest immutable single-observation lifting result."""
+        with self._projection_lock:
+            return self._latest_lifting_frame
+
+    def publish_final_object_candidate(
+        self,
+        candidate: ObjectCandidate3D,
+    ) -> None:
+        """Explicitly commit one externally selected candidate as official."""
+        self._final_marker_guard.commit(candidate)
+        self._trace(
+            event='official_object_marker_committed',
+            selected_action='publish_selected_object_marker',
+            selection_reason='explicit_external_candidate_commit',
+            details={'candidate_id': candidate.candidate_id},
+        )
 
     def start_route(self, route: Iterable[Waypoint2D]) -> None:
         """Start a route and publish exactly its first active waypoint."""
@@ -538,6 +595,12 @@ class QMapNavNode(Node):
             return
         with self._projection_lock:
             self._latest_projection_frame = result
+        lifting = self._lifting_pipeline.process(result)
+        with self._projection_lock:
+            self._latest_lifting_frame = lifting
+        self._candidate_marker_publisher.publish(
+            candidate_marker_array(lifting.candidates)
+        )
         self._trace(
             event='projection_completed',
             selected_action='retain_projection',
@@ -550,11 +613,30 @@ class QMapNavNode(Node):
                     self._projection_pipeline.dense_accumulator.stats()
                 ),
                 'worker': self._projection_worker.stats(),
+                'lifting': {
+                    'candidate_count': len(lifting.candidates),
+                    'result_count': len(lifting.results),
+                    'ground_reason': lifting.ground_estimate.reason,
+                    'results': tuple(
+                        {
+                            'detection_id': item.detection_id,
+                            'status': item.status.value,
+                            'reason': item.reason,
+                            'counts': asdict(item.counts),
+                            'processing_time_ms': item.processing_time_ms,
+                        }
+                        for item in lifting.results
+                    ),
+                },
             },
         )
-        self._save_projection_debug(result)
+        self._save_projection_debug(result, lifting)
 
-    def _save_projection_debug(self, result: ProjectionFrame) -> None:
+    def _save_projection_debug(
+        self,
+        result: ProjectionFrame,
+        lifting: LiftingFrame,
+    ) -> None:
         output_value = str(self.get_parameter('projection_debug_directory').value)
         max_saved = int(self.get_parameter('projection_max_saved_frames').value)
         if not output_value or self._saved_projection_count >= max_saved:
@@ -591,6 +673,29 @@ class QMapNavNode(Node):
             result.association.pose.position_xyz,
             heading,
         )
+        lifting_projection = (
+            result.current
+            if lifting.source is GeometrySource.CURRENT
+            else result.accumulated
+        )
+        for index, (detection, lifted) in enumerate(
+            zip(result.detections, lifting.results)
+        ):
+            prefix = f'lift_{index:02d}_{detection.class_name.replace(" ", "_")}'
+            images[f'{prefix}_stages.png'] = draw_lifting_stage_overlay(
+                result.panorama.image_rgb,
+                lifting_projection,
+                detection,
+                lifted,
+            )
+            images[f'{prefix}_depth.png'] = draw_depth_histogram(
+                lifting_projection,
+                lifted,
+            )
+            images[f'{prefix}_geometry.png'] = draw_candidate_orthographic(
+                lifted,
+                result.association.pose.position_xyz,
+            )
         for filename, image_rgb in images.items():
             if not cv2.imwrite(
                 str(output / filename),
@@ -858,6 +963,74 @@ class QMapNavNode(Node):
             quality_config=quality_config,
         )
 
+    def _create_lifting_pipeline(self) -> Day6LiftingPipeline:
+        source_text = str(self.get_parameter('lifting_source').value)
+        try:
+            source = GeometrySource(source_text)
+        except ValueError as error:
+            raise ValueError(
+                'lifting_source must be current or accumulated'
+            ) from error
+        config = ObjectLiftingConfig(
+            selection=PointSelectionConfig(
+                bbox_inner_margin_fraction=float(
+                    self.get_parameter('lifting_bbox_inner_margin').value
+                )
+            ),
+            depth=DepthFilterConfig(
+                bin_width_m=float(
+                    self.get_parameter('lifting_depth_bin_width').value
+                ),
+                minimum_mode_points=int(
+                    self.get_parameter('lifting_depth_minimum_mode_points').value
+                ),
+                maximum_band_width_m=float(
+                    self.get_parameter('lifting_depth_maximum_band').value
+                ),
+            ),
+            clustering=ClusterSelectionConfig(
+                base_epsilon_m=float(
+                    self.get_parameter('lifting_dbscan_base_epsilon').value
+                ),
+                range_epsilon_slope=float(
+                    self.get_parameter('lifting_dbscan_range_slope').value
+                ),
+                minimum_samples=int(
+                    self.get_parameter('lifting_dbscan_minimum_samples').value
+                ),
+            ),
+            boxes=BoxEstimationConfig(
+                lower_percentile=float(
+                    self.get_parameter('lifting_box_lower_percentile').value
+                ),
+                upper_percentile=float(
+                    self.get_parameter('lifting_box_upper_percentile').value
+                ),
+            ),
+            orientation=OrientationConfidenceConfig(
+                low_confidence=float(
+                    self.get_parameter('lifting_orientation_low_confidence').value
+                ),
+                high_confidence=float(
+                    self.get_parameter('lifting_orientation_high_confidence').value
+                ),
+            ),
+            ground_clearance_m=float(
+                self.get_parameter('lifting_ground_clearance').value
+            ),
+            floor_standing_clearance_m=float(
+                self.get_parameter('lifting_floor_standing_clearance').value
+            ),
+            sparse_point_threshold=int(
+                self.get_parameter('lifting_sparse_point_threshold').value
+            ),
+        )
+        return Day6LiftingPipeline(
+            ObjectLifter(config),
+            source=source,
+            use_masks=bool(self.get_parameter('lifting_use_masks').value),
+        )
+
     def _expire_episode_if_needed(self) -> bool:
         if self._elapsed() < self._episode_time_limit:
             return False
@@ -932,6 +1105,22 @@ class QMapNavNode(Node):
             'projection_regression_notes',
             'Live Day 5 camera-LiDAR alignment regression.',
         )
+        self.declare_parameter('lifting_source', 'accumulated')
+        self.declare_parameter('lifting_use_masks', False)
+        self.declare_parameter('lifting_bbox_inner_margin', 0.05)
+        self.declare_parameter('lifting_ground_clearance', 0.07)
+        self.declare_parameter('lifting_floor_standing_clearance', 0.02)
+        self.declare_parameter('lifting_depth_bin_width', 0.15)
+        self.declare_parameter('lifting_depth_minimum_mode_points', 5)
+        self.declare_parameter('lifting_depth_maximum_band', 1.5)
+        self.declare_parameter('lifting_dbscan_base_epsilon', 0.07)
+        self.declare_parameter('lifting_dbscan_range_slope', 0.015)
+        self.declare_parameter('lifting_dbscan_minimum_samples', 5)
+        self.declare_parameter('lifting_box_lower_percentile', 2.5)
+        self.declare_parameter('lifting_box_upper_percentile', 97.5)
+        self.declare_parameter('lifting_orientation_low_confidence', 0.40)
+        self.declare_parameter('lifting_orientation_high_confidence', 0.70)
+        self.declare_parameter('lifting_sparse_point_threshold', 8)
         self.declare_parameter(
             'trace_path', '/tmp/qmapnav/decision_trace.jsonl'
         )
