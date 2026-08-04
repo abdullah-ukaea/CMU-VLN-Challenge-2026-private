@@ -14,6 +14,9 @@ evidence fusion, wall extraction, and ray-to-wall structural anchors.
 Day 8 adds mask/geometry-supported HSV-Lab colour probabilities, bounded
 multi-view colour fusion, and map-frame vertical and physical-support relations
 with contradiction checks and separate debug visualisation.
+Day 9 adds persistent-map candidate generation, footprint-aware spatial
+relations, physically checked between-gates, complete joint hypothesis scoring,
+and explicit confidence margins and ambiguity states.
 
 Day 3 development infrastructure adds validated adapters for released
 questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
@@ -120,6 +123,11 @@ Day 8 colour vocabulary, pixel reliability, fitted prototypes, held-out
 metrics, support geometry, relation semantics, graph consistency, and debug
 outputs are documented in
 [`docs/day_8_colour_relations.md`](docs/day_8_colour_relations.md).
+
+Day 9 resolution contracts, candidate/set enumeration, spatial predicates,
+physical corridor checks, full-hypothesis scoring, ambiguity policy, runtime
+parameters, diagnostics, and Office 1 evidence are documented in
+[`docs/day_9_spatial_reasoning.md`](docs/day_9_spatial_reasoning.md).
 
 ## Build
 
