@@ -31,6 +31,13 @@ from qmapnav.evaluation.ground_truth import OracleRelation
 from qmapnav.evaluation.ground_truth import OracleScene
 from qmapnav.evaluation.ground_truth import OracleTrajectory
 from qmapnav.evaluation.ground_truth import QuestionRecord
+from qmapnav.evaluation.instance_fusion import AnchorStabilityMetrics
+from qmapnav.evaluation.instance_fusion import evaluate_anchor_stability
+from qmapnav.evaluation.instance_fusion import evaluate_fusion_geometry
+from qmapnav.evaluation.instance_fusion import evaluate_identity_assignments
+from qmapnav.evaluation.instance_fusion import FusionGeometryMetrics
+from qmapnav.evaluation.instance_fusion import IdentityAssignment
+from qmapnav.evaluation.instance_fusion import IdentityMetrics
 from qmapnav.evaluation.metrics import count_accuracy_metric
 from qmapnav.evaluation.metrics import CountAccuracyMetric
 from qmapnav.evaluation.metrics import forbidden_region_metrics
@@ -54,6 +61,7 @@ from qmapnav.evaluation.trace import TraceRecorderStats
 
 
 __all__ = [
+    'AnchorStabilityMetrics',
     'ColourAttribute',
     'CandidatePredictions',
     'CountAccuracyMetric',
@@ -83,6 +91,10 @@ __all__ = [
     'DetectorDatasetCase',
     'VisibleInstance',
     'empty_metric_counts',
+    'evaluate_anchor_stability',
+    'evaluate_fusion_geometry',
+    'evaluate_identity_assignments',
+    'FusionGeometryMetrics',
     'load_detector_dataset',
     'roll_visible_instance',
     'score_panorama_detections',
@@ -90,6 +102,8 @@ __all__ = [
     'forbidden_region_metrics',
     'ground_truth_to_data',
     'ground_truth_to_json',
+    'IdentityAssignment',
+    'IdentityMetrics',
     'load_ascii_trajectory_ply',
     'load_development_scenes',
     'load_oracle_scene',
