@@ -63,8 +63,25 @@ def test_node_uses_only_permitted_official_topics(node: object) -> None:
     assert node._candidate_marker_publisher.topic_name == (
         '/qmapnav/debug/object_candidates'
     )
+    assert node._object_map_marker_publisher.topic_name == (
+        '/qmapnav/debug/object_map'
+    )
+    assert node._structural_map_marker_publisher.topic_name == (
+        '/qmapnav/debug/structural_map'
+    )
     assert node._official_marker_publisher.topic_name == '/selected_object_marker'
     assert not node._final_marker_guard.committed
+
+
+def test_node_resets_day7_maps_without_touching_frozen_protocol(node: object) -> None:
+    node._persistent_path_xy.append((1.0, 2.0))
+    node.reset_persistent_maps()
+
+    assert node.object_map.active_instances() == []
+    assert node.object_map.next_instance_id == 0
+    assert node.structural_map.walls() == []
+    assert node.structural_map.anchors() == []
+    assert list(node._persistent_path_xy) == []
 
 
 @pytest.mark.parametrize('encoding', ['rgb8', 'bgr8'])

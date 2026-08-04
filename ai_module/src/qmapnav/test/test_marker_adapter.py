@@ -3,15 +3,21 @@
 import numpy as np
 import pytest
 
+from qmapnav.common import ObjectInstance
 from qmapnav.mapping.object_candidate import ConfidenceComponents
 from qmapnav.mapping.object_candidate import GeometrySource
 from qmapnav.mapping.object_candidate import GeometryStatus
 from qmapnav.mapping.object_candidate import LiftingCounts
 from qmapnav.mapping.object_candidate import ObjectCandidate3D
+from qmapnav.mapping.object_map import ObjectAssociationEvent
+from qmapnav.mapping.structural_map import StructuralAnchor
+from qmapnav.mapping.structural_map import StructuralAssociationEvent
 from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import candidate_to_marker_spec
 from qmapnav.mission.marker_adapter import FinalMarkerGuard
 from qmapnav.mission.marker_adapter import marker_spec_to_ros
+from qmapnav.mission.marker_adapter import object_map_marker_array
+from qmapnav.mission.marker_adapter import structural_map_marker_array
 
 
 def _candidate() -> ObjectCandidate3D:
@@ -88,3 +94,92 @@ def test_final_marker_guard_publishes_once_only_when_explicitly_committed() -> N
     assert len(published) == 1
     with pytest.raises(RuntimeError, match='already committed'):
         guard.commit(_candidate())
+
+
+def test_fused_map_markers_include_labels_and_association_lines() -> None:
+    candidate = _candidate()
+    instance = ObjectInstance(
+        7,
+        {'chair': 1.0},
+        {},
+        candidate.obb_centre_xyz,
+        candidate.aabb_min_xyz,
+        candidate.aabb_max_xyz,
+        candidate.obb_dimensions_xyz,
+        candidate.obb_yaw_rad,
+        0.8,
+        3,
+        0.85,
+    )
+    event = ObjectAssociationEvent(
+        candidate.candidate_id,
+        'chair',
+        7,
+        {'distance': 0.9},
+        0.9,
+        'merge',
+        'accepted',
+        3,
+    )
+
+    markers = object_map_marker_array(
+        [instance],
+        candidates=(candidate,),
+        association_events=(event,),
+    )
+
+    namespaces = {marker.ns for marker in markers.markers}
+    assert 'qmapnav_fused_objects' in namespaces
+    assert 'qmapnav_object_labels' in namespaces
+    assert 'qmapnav_object_associations' in namespaces
+
+
+def test_structural_markers_include_wall_normal_anchor_and_label() -> None:
+    wall = StructuralAnchor(
+        'wall_0000',
+        'wall',
+        'wall',
+        np.array([0.0, 2.0, 1.0]),
+        np.array([[-1.0, 2.0], [1.0, 2.0]]),
+        None,
+        np.array([0.0, 1.0, 0.0, -2.0]),
+        np.array([2.0, 0.05, 2.0]),
+        0.0,
+        None,
+        0.9,
+        1,
+        1,
+        ('scan',),
+        (),
+    )
+    anchor = StructuralAnchor(
+        'anchor_0000',
+        'window',
+        'window',
+        np.array([0.0, 2.0, 1.0]),
+        None,
+        None,
+        wall.plane_parameters,
+        np.array([1.0, 0.05, 1.0]),
+        0.0,
+        wall.anchor_id,
+        0.8,
+        1,
+        2,
+        ('a', 'b'),
+        ('window_a', 'window_b'),
+    )
+
+    event = StructuralAssociationEvent(
+        'window_a', 'window', anchor.anchor_id, wall.anchor_id,
+        'create_new', 'nearest_plausible_forward_wall',
+        {wall.anchor_id: 2.0}, (0.0, 0.0, 1.0), (0.0, 2.0, 1.0),
+    )
+    markers = structural_map_marker_array([wall], [anchor], (event,))
+
+    namespaces = {marker.ns for marker in markers.markers}
+    assert 'qmapnav_walls' in namespaces
+    assert 'qmapnav_wall_normals' in namespaces
+    assert 'qmapnav_structural_anchors' in namespaces
+    assert 'qmapnav_structural_labels' in namespaces
+    assert 'qmapnav_structural_rays' in namespaces

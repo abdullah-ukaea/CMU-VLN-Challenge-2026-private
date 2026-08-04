@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import asdict
+from dataclasses import replace
 from math import atan2
 from pathlib import Path
 from threading import RLock
@@ -41,10 +42,17 @@ from qmapnav.mapping.lifting_pipeline import LiftingFrame
 from qmapnav.mapping.lifting_visualisation import draw_candidate_orthographic
 from qmapnav.mapping.lifting_visualisation import draw_depth_histogram
 from qmapnav.mapping.lifting_visualisation import draw_lifting_stage_overlay
+from qmapnav.mapping.map_visualisation import draw_persistent_map_top_down
+from qmapnav.mapping.object_association import (
+    AssociationConfig as ObjectAssociationConfig,
+)
 from qmapnav.mapping.object_candidate import GeometrySource
+from qmapnav.mapping.object_candidate import GeometryStatus
 from qmapnav.mapping.object_candidate import ObjectCandidate3D
 from qmapnav.mapping.object_lifting import ObjectLifter
 from qmapnav.mapping.object_lifting import ObjectLiftingConfig
+from qmapnav.mapping.object_map import ObjectMap
+from qmapnav.mapping.object_map import ObjectMapConfig
 from qmapnav.mapping.orientation_confidence import OrientationConfidenceConfig
 from qmapnav.mapping.point_cloud import decode_scan_arrays
 from qmapnav.mapping.point_cloud import ScanArrays
@@ -54,12 +62,21 @@ from qmapnav.mapping.projection_regression import save_projection_regression_cas
 from qmapnav.mapping.projection_visualisation import draw_detection_projection_overlay
 from qmapnav.mapping.projection_visualisation import draw_projection_overlay
 from qmapnav.mapping.projection_visualisation import draw_top_down_projection
+from qmapnav.mapping.structural_map import StructuralMap
+from qmapnav.mapping.structural_map import StructuralMapConfig
+from qmapnav.mapping.transforms import invert_transform
 from qmapnav.mapping.transforms import make_transform
 from qmapnav.mapping.transforms import quaternion_xyzw_to_rotation
+from qmapnav.mapping.viewpoint_observation import ViewpointObservation
+from qmapnav.mapping.wall_extraction import WallExtractionConfig
 from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import CANDIDATE_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import FinalMarkerGuard
+from qmapnav.mission.marker_adapter import object_map_marker_array
+from qmapnav.mission.marker_adapter import OBJECT_MAP_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import OFFICIAL_MARKER_TOPIC
+from qmapnav.mission.marker_adapter import structural_map_marker_array
+from qmapnav.mission.marker_adapter import STRUCTURAL_MAP_MARKER_TOPIC
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
 from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
@@ -72,6 +89,7 @@ from qmapnav.navigation import ExecutorEventType
 from qmapnav.navigation import SequentialWaypointExecutor
 from qmapnav.navigation import Waypoint2D
 from qmapnav.perception.baseline import make_day4_baseline_worker
+from qmapnav.perception.contracts import Detection2D
 from qmapnav.perception.contracts import PerceptionRequest
 from qmapnav.perception.panorama_projection import PanoramaCameraModel
 from qmapnav.perception.vocabulary import detector_classes_from_task_specification
@@ -96,6 +114,8 @@ class QMapNavNode(Node):
         scan_accumulator: RegisteredScanAccumulator | None = None,
         projection_pipeline: Day5ProjectionPipeline | None = None,
         lifting_pipeline: Day6LiftingPipeline | None = None,
+        object_map: ObjectMap | None = None,
+        structural_map: StructuralMap | None = None,
         perception_worker: object | None = None,
         trace_recorder: TraceRecorder | None = None,
         point_cloud_decoder: Callable[[object], object] = decode_scan_arrays,
@@ -134,6 +154,10 @@ class QMapNavNode(Node):
         self._processed_image_ids: deque[str] = deque(maxlen=128)
         self._processed_image_id_set: set[str] = set()
         self._saved_projection_count = 0
+        self._structural_frame_count = 0
+        self._persistent_path_xy: deque[tuple[float, float]] = deque(
+            maxlen=2048
+        )
 
         self._question_latch = QuestionLatch()
         self._task_specification: TaskSpecification | None = None
@@ -144,6 +168,8 @@ class QMapNavNode(Node):
         self._lifting_pipeline = (
             lifting_pipeline or self._create_lifting_pipeline()
         )
+        self._object_map = object_map or self._create_object_map()
+        self._structural_map = structural_map or self._create_structural_map()
         self._trace_recorder = trace_recorder or self._create_trace_recorder()
         self._waypoint_executor = SequentialWaypointExecutor(
             arrival_radius=float(self.get_parameter('arrival_radius').value),
@@ -197,6 +223,16 @@ class QMapNavNode(Node):
             CANDIDATE_MARKER_TOPIC,
             5,
         )
+        self._object_map_marker_publisher = self.create_publisher(
+            MarkerArray,
+            OBJECT_MAP_MARKER_TOPIC,
+            5,
+        )
+        self._structural_map_marker_publisher = self.create_publisher(
+            MarkerArray,
+            STRUCTURAL_MAP_MARKER_TOPIC,
+            5,
+        )
         self._official_marker_publisher = self.create_publisher(
             Marker,
             OFFICIAL_MARKER_TOPIC,
@@ -211,7 +247,7 @@ class QMapNavNode(Node):
         )
         self._trace(
             event='node_initialized',
-            selection_reason='day_6_lifting_runtime_ready',
+            selection_reason='day_7_persistent_mapping_runtime_ready',
             details={
                 'executor': {
                     'arrival_radius': self._waypoint_executor.arrival_radius,
@@ -232,6 +268,8 @@ class QMapNavNode(Node):
                 'dense_accumulator': asdict(
                     self._projection_pipeline.dense_accumulator.config
                 ),
+                'object_map': asdict(self._object_map.config),
+                'structural_map': asdict(self._structural_map.config),
             },
         )
         self._projection_worker = BoundedProjectionWorker(
@@ -274,6 +312,23 @@ class QMapNavNode(Node):
         """Return the latest immutable single-observation lifting result."""
         with self._projection_lock:
             return self._latest_lifting_frame
+
+    @property
+    def object_map(self) -> ObjectMap:
+        """Expose the bounded episode-local persistent object map."""
+        return self._object_map
+
+    @property
+    def structural_map(self) -> StructuralMap:
+        """Expose the bounded episode-local architectural map."""
+        return self._structural_map
+
+    def reset_persistent_maps(self) -> None:
+        """Reset Day 7 object and structural identities at an episode boundary."""
+        self._object_map.reset_episode()
+        self._structural_map.reset_episode()
+        self._structural_frame_count = 0
+        self._persistent_path_xy.clear()
 
     def publish_final_object_candidate(
         self,
@@ -394,6 +449,14 @@ class QMapNavNode(Node):
             1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2),
         )
         self._latest_pose_xy = (position.x, position.y)
+        if (
+            not self._persistent_path_xy
+            or np.linalg.norm(
+                np.asarray(self._persistent_path_xy[-1])
+                - np.asarray(self._latest_pose_xy)
+            ) >= 0.02
+        ):
+            self._persistent_path_xy.append(self._latest_pose_xy)
         try:
             if message.header.frame_id and message.child_frame_id:
                 self._latest_timed_pose = TimedPose(
@@ -601,6 +664,7 @@ class QMapNavNode(Node):
         self._candidate_marker_publisher.publish(
             candidate_marker_array(lifting.candidates)
         )
+        self._update_persistent_maps(result, lifting)
         self._trace(
             event='projection_completed',
             selected_action='retain_projection',
@@ -632,6 +696,139 @@ class QMapNavNode(Node):
         )
         self._save_projection_debug(result, lifting)
 
+    def _update_persistent_maps(
+        self,
+        result: ProjectionFrame,
+        lifting: LiftingFrame,
+    ) -> None:
+        """Fuse lifted objects, extract walls, and anchor structural rays."""
+        detections = {
+            detection.detection_id: detection
+            for detection in result.detections
+        }
+        pose = result.association.pose
+        quaternion = pose.orientation_xyzw
+        heading = atan2(
+            2.0 * (
+                quaternion[3] * quaternion[2]
+                + quaternion[0] * quaternion[1]
+            ),
+            1.0 - 2.0 * (quaternion[1] ** 2 + quaternion[2] ** 2),
+        )
+        candidates = list(lifting.candidates)
+        observations = []
+        for candidate in candidates:
+            detection = detections.get(candidate.detection_id)
+            crop = (
+                _crop_detection(result.panorama.image_rgb, detection)
+                if detection is not None else None
+            )
+            crop_score = _best_crop_score(candidate, detection, crop)
+            if candidate.partial_geometry:
+                visibility = 'partial'
+            elif candidate.geometry_status is GeometryStatus.SPARSE:
+                visibility = 'sparse'
+            else:
+                visibility = 'full'
+            observations.append(ViewpointObservation(
+                viewpoint_id=result.panorama.image_id,
+                robot_pose_xyz_yaw=np.array([
+                    *pose.position_xyz,
+                    heading,
+                ]),
+                timestamp_ns=result.panorama.timestamp_ns,
+                detection_id=candidate.detection_id,
+                point_count=candidate.point_count,
+                geometry_confidence=candidate.geometry_confidence,
+                visibility=visibility,
+                best_crop=crop,
+                best_crop_score=crop_score,
+            ))
+        try:
+            self._object_map.add_viewpoint_candidates(
+                candidates, observations
+            )
+        except (TypeError, ValueError) as error:
+            self.get_logger().warning(f'ObjectMap update rejected: {error}')
+            self._trace(
+                event='object_map_update_rejected',
+                selected_action='retain_previous_object_map',
+                selection_reason='invalid_candidate_or_observation',
+                details={'error': str(error)},
+            )
+        else:
+            for event in self._object_map.last_events:
+                self._trace(
+                    event='object_association',
+                    selected_action=event.decision,
+                    selection_reason=event.reason,
+                    details=event.to_dict(),
+                )
+        self._object_map_marker_publisher.publish(object_map_marker_array(
+            self._object_map.active_instances(),
+            candidates=lifting.candidates,
+            association_events=self._object_map.last_events,
+        ))
+        self._structural_frame_count += 1
+        interval = max(1, int(
+            self.get_parameter('structural_wall_update_interval').value
+        ))
+        if (
+            self._structural_frame_count == 1
+            or self._structural_frame_count % interval == 0
+        ):
+            try:
+                wall_ids = self._structural_map.update_walls_from_points(
+                    result.accumulated_snapshot.points_xyz,
+                    timestamp_ns=result.panorama.timestamp_ns,
+                    viewpoint_id=result.panorama.image_id,
+                )
+            except (TypeError, ValueError) as error:
+                self.get_logger().warning(
+                    f'Structural wall update rejected: {error}'
+                )
+                wall_ids = ()
+            if wall_ids:
+                self._trace(
+                    event='structural_walls_updated',
+                    selected_action='retain_wall_segments',
+                    selection_reason='vertically_supported_line_fit',
+                    details={
+                        'wall_ids': wall_ids,
+                        'wall_count': len(self._structural_map.walls()),
+                    },
+                )
+        transform_map_from_camera = invert_transform(
+            result.current.transform_camera_internal_from_map
+        )
+        for detection in result.detections:
+            metadata = dict(detection.metadata)
+            metadata.update({
+                'viewpoint_id': result.panorama.image_id,
+                'timestamp_ns': result.panorama.timestamp_ns,
+            })
+            annotated = replace(detection, metadata=metadata)
+            anchor = self._structural_map.anchor_detection_to_wall(
+                annotated, transform_map_from_camera
+            )
+            for event in self._structural_map.last_events:
+                if event.reason == 'class_is_not_structural':
+                    continue
+                self._trace(
+                    event='structural_anchor_association',
+                    selected_action=event.decision,
+                    selection_reason=event.reason,
+                    details=event.to_dict(),
+                )
+            del anchor
+        self._structural_map_marker_publisher.publish(
+            structural_map_marker_array(
+                self._structural_map.walls(),
+                self._structural_map.anchors(),
+                self._structural_map.last_events,
+            )
+        )
+
     def _save_projection_debug(
         self,
         result: ProjectionFrame,
@@ -657,6 +854,18 @@ class QMapNavNode(Node):
                 result.current,
                 result.detections,
                 result.current_detection_support,
+            ),
+            'persistent_map.png': draw_persistent_map_top_down(
+                [
+                    self._object_map.record(instance.instance_id)
+                    for instance in self._object_map.active_instances()
+                ],
+                self._structural_map.walls(),
+                self._structural_map.anchors(),
+                (
+                    np.asarray(self._persistent_path_xy)
+                    if self._persistent_path_xy else None
+                ),
             ),
         }
         orientation = result.association.pose.orientation_xyzw
@@ -832,8 +1041,13 @@ class QMapNavNode(Node):
                     parse_confidence=(
                         task.parse_confidence if task is not None else None
                     ),
-                    known_object_count=0,
-                    known_structure_count=0,
+                    known_object_count=len(
+                        self._object_map.active_instances()
+                    ),
+                    known_structure_count=(
+                        len(self._structural_map.walls())
+                        + len(self._structural_map.anchors())
+                    ),
                     missing_entities=missing_entities,
                     candidate_actions=candidate_actions,
                     selected_action=selected_action,
@@ -1031,6 +1245,79 @@ class QMapNavNode(Node):
             use_masks=bool(self.get_parameter('lifting_use_masks').value),
         )
 
+    def _create_object_map(self) -> ObjectMap:
+        return ObjectMap(ObjectMapConfig(
+            association=ObjectAssociationConfig(
+                accept_threshold=float(
+                    self.get_parameter('object_map_accept_threshold').value
+                ),
+                uncertain_threshold=float(
+                    self.get_parameter('object_map_uncertain_threshold').value
+                ),
+                yaw_confidence_threshold=float(self.get_parameter(
+                    'object_map_yaw_confidence_threshold'
+                ).value),
+            ),
+            same_keyframe_distance_m=float(self.get_parameter(
+                'object_map_same_keyframe_distance'
+            ).value),
+            same_keyframe_overlap_threshold=float(self.get_parameter(
+                'object_map_same_keyframe_overlap'
+            ).value),
+            fused_voxel_size_m=float(
+                self.get_parameter('object_map_fused_voxel_size').value
+            ),
+            max_fused_points_per_instance=int(self.get_parameter(
+                'object_map_max_points_per_instance'
+            ).value),
+            max_total_fused_points=int(
+                self.get_parameter('object_map_max_total_points').value
+            ),
+            max_observation_history=int(self.get_parameter(
+                'object_map_max_observation_history'
+            ).value),
+        ))
+
+    def _create_structural_map(self) -> StructuralMap:
+        wall_config = WallExtractionConfig(
+            min_height_above_ground_m=float(self.get_parameter(
+                'wall_min_height_above_ground'
+            ).value),
+            min_segment_length_m=float(
+                self.get_parameter('wall_min_segment_length').value
+            ),
+            max_line_residual_m=float(
+                self.get_parameter('wall_max_line_residual').value
+            ),
+            merge_angle_deg=float(
+                self.get_parameter('wall_merge_angle_deg').value
+            ),
+            merge_perpendicular_distance_m=float(self.get_parameter(
+                'wall_merge_perpendicular_distance'
+            ).value),
+            preserve_opening_width_m=float(
+                self.get_parameter('wall_preserve_opening_width').value
+            ),
+            max_candidate_points=int(
+                self.get_parameter('wall_max_candidate_points').value
+            ),
+        )
+        return StructuralMap(StructuralMapConfig(
+            wall_extraction=wall_config,
+            ray_parallel_epsilon=float(
+                self.get_parameter('structural_ray_parallel_epsilon').value
+            ),
+            max_wall_extent_margin_m=float(self.get_parameter(
+                'structural_max_wall_extent_margin'
+            ).value),
+            anchor_merge_distance_m=float(self.get_parameter(
+                'structural_anchor_merge_distance'
+            ).value),
+            ambiguous_wall_distance_margin_m=float(self.get_parameter(
+                'structural_ambiguous_wall_distance_margin'
+            ).value),
+        ))
+
     def _expire_episode_if_needed(self) -> bool:
         if self._elapsed() < self._episode_time_limit:
             return False
@@ -1121,6 +1408,29 @@ class QMapNavNode(Node):
         self.declare_parameter('lifting_orientation_low_confidence', 0.40)
         self.declare_parameter('lifting_orientation_high_confidence', 0.70)
         self.declare_parameter('lifting_sparse_point_threshold', 8)
+        self.declare_parameter('object_map_accept_threshold', 0.62)
+        self.declare_parameter('object_map_uncertain_threshold', 0.55)
+        self.declare_parameter('object_map_yaw_confidence_threshold', 0.50)
+        self.declare_parameter('object_map_same_keyframe_distance', 0.30)
+        self.declare_parameter('object_map_same_keyframe_overlap', 0.60)
+        self.declare_parameter('object_map_fused_voxel_size', 0.03)
+        self.declare_parameter('object_map_max_points_per_instance', 50_000)
+        self.declare_parameter('object_map_max_total_points', 500_000)
+        self.declare_parameter('object_map_max_observation_history', 100)
+        self.declare_parameter('structural_wall_update_interval', 10)
+        self.declare_parameter('wall_min_height_above_ground', 0.20)
+        self.declare_parameter('wall_min_segment_length', 0.50)
+        self.declare_parameter('wall_max_line_residual', 0.08)
+        self.declare_parameter('wall_merge_angle_deg', 5.0)
+        self.declare_parameter('wall_merge_perpendicular_distance', 0.12)
+        self.declare_parameter('wall_preserve_opening_width', 0.60)
+        self.declare_parameter('wall_max_candidate_points', 50_000)
+        self.declare_parameter('structural_ray_parallel_epsilon', 1.0e-6)
+        self.declare_parameter('structural_max_wall_extent_margin', 0.25)
+        self.declare_parameter('structural_anchor_merge_distance', 0.55)
+        self.declare_parameter(
+            'structural_ambiguous_wall_distance_margin', 0.10
+        )
         self.declare_parameter(
             'trace_path', '/tmp/qmapnav/decision_trace.jsonl'
         )
@@ -1159,6 +1469,46 @@ def _decode_image_rgb(message: Image) -> np.ndarray:
     if message.encoding == 'bgr8':
         image = image[..., ::-1]
     return np.ascontiguousarray(image)
+
+
+def _crop_detection(
+    panorama_rgb: np.ndarray,
+    detection: Detection2D,
+) -> np.ndarray | None:
+    """Return a bounded wrap-aware panorama crop for best-view memory."""
+    image = np.asarray(panorama_rgb)
+    y_min = max(0, int(np.floor(detection.panorama_box.y_min)))
+    y_max = min(image.shape[0], int(np.ceil(detection.panorama_box.y_max)))
+    if y_max <= y_min:
+        return None
+    pieces = []
+    for x_min, x_max in detection.panorama_box.x_intervals:
+        left = max(0, int(np.floor(x_min)))
+        right = min(image.shape[1], int(np.ceil(x_max)))
+        if right > left:
+            pieces.append(image[y_min:y_max, left:right])
+    if not pieces:
+        return None
+    return np.ascontiguousarray(np.concatenate(pieces, axis=1)).copy()
+
+
+def _best_crop_score(
+    candidate: ObjectCandidate3D,
+    detection: Detection2D | None,
+    crop: np.ndarray | None,
+) -> float:
+    """Score crop evidence from detection, geometry, area, and point support."""
+    if detection is None or crop is None or crop.size == 0:
+        return 0.0
+    area_score = min(1.0, float(np.sqrt(crop.shape[0] * crop.shape[1])) / 300.0)
+    support_score = min(1.0, candidate.point_count / 100.0)
+    score = (
+        0.45 * detection.confidence
+        + 0.35 * candidate.geometry_confidence
+        + 0.10 * area_score
+        + 0.10 * support_score
+    )
+    return min(1.0, max(0.0, float(score)))
 
 
 def main(args: list[str] | None = None) -> None:
