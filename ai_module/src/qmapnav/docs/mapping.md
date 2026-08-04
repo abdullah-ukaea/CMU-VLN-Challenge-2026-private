@@ -66,3 +66,14 @@ identity, cross-view fusion, structural extraction, relations, or final answer
 selection. Contracts, defaults, measured Office 1 results, marker-topic safety,
 and the five-case replay pack are documented in
 [`day_6_lifting.md`](day_6_lifting.md).
+
+## Day 7 persistent objects and structures
+
+Day 7 adds conservative episode-local IDs, one-to-one association, bounded
+multi-view fusion, wall extraction, and ray-to-wall anchoring for windows,
+openings, and wall-mounted landmarks. The frozen shared `ObjectInstance`
+remains the reasoning snapshot; histories, fused points, crops, statuses, and
+diagnostics live in bounded mapping-local records. Architectural features use a
+separate `StructuralAnchor` contract. The score, gates, memory policy, debug
+topics, trace records, and regressions are documented in
+[`day_7_mapping.md`](day_7_mapping.md).

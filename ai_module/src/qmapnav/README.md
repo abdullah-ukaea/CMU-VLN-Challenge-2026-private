@@ -9,6 +9,8 @@ waypoint execution, registered-scan maps, observational decision tracing, Day
 rolling densification path. Day 6 adds single-observation point cleaning,
 distance-aware clustering, robust AABB/upright-OBB estimation, orientation
 confidence, and strictly separated debug/final marker adapters.
+Day 7 adds persistent episode-local object identities, bounded cross-view
+evidence fusion, wall extraction, and ray-to-wall structural anchors.
 
 Day 3 development infrastructure adds validated adapters for released
 questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
@@ -106,6 +108,10 @@ Day 6 detection-to-geometry contracts, cleaning and clustering policy,
 confidence-aware upright boxes, marker safety boundary, measured box-versus-mask
 decision, and saved simulator regressions are documented in
 [`docs/day_6_lifting.md`](docs/day_6_lifting.md).
+
+Day 7 object association, one-to-one duplicate prevention, bounded fusion,
+walls, structural anchors, debug topics, metrics, and regressions are documented
+in [`docs/day_7_mapping.md`](docs/day_7_mapping.md).
 
 ## Build
 
