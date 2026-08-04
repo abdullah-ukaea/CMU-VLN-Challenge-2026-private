@@ -11,6 +11,9 @@ distance-aware clustering, robust AABB/upright-OBB estimation, orientation
 confidence, and strictly separated debug/final marker adapters.
 Day 7 adds persistent episode-local object identities, bounded cross-view
 evidence fusion, wall extraction, and ray-to-wall structural anchors.
+Day 8 adds mask/geometry-supported HSV-Lab colour probabilities, bounded
+multi-view colour fusion, and map-frame vertical and physical-support relations
+with contradiction checks and separate debug visualisation.
 
 Day 3 development infrastructure adds validated adapters for released
 questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
@@ -112,6 +115,11 @@ decision, and saved simulator regressions are documented in
 Day 7 object association, one-to-one duplicate prevention, bounded fusion,
 walls, structural anchors, debug topics, metrics, and regressions are documented
 in [`docs/day_7_mapping.md`](docs/day_7_mapping.md).
+
+Day 8 colour vocabulary, pixel reliability, fitted prototypes, held-out
+metrics, support geometry, relation semantics, graph consistency, and debug
+outputs are documented in
+[`docs/day_8_colour_relations.md`](docs/day_8_colour_relations.md).
 
 ## Build
 
