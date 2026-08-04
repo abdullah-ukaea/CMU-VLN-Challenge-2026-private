@@ -15,6 +15,16 @@ setup(
         ),
         (f'share/{PACKAGE_NAME}', ['package.xml']),
         (f'share/{PACKAGE_NAME}/launch', ['launch/qmapnav.launch.py']),
+        (
+            f'share/{PACKAGE_NAME}/benchmark',
+            [
+                'benchmark/day8_colour_prototypes.json',
+                'benchmark/day8_colour_heldout_report.json',
+                'benchmark/day8_colour_inventory.json',
+                'benchmark/day8_relation_report.json',
+                'benchmark/day8_colour_split.json',
+            ],
+        ),
     ],
     install_requires=['numpy', 'setuptools'],
     zip_safe=False,

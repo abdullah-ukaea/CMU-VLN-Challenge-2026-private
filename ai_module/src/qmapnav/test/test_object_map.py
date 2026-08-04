@@ -11,6 +11,7 @@ from qmapnav.mapping.object_candidate import ObjectCandidate3D
 from qmapnav.mapping.object_map import ObjectMap
 from qmapnav.mapping.object_map import ObjectMapConfig
 from qmapnav.mapping.viewpoint_observation import ViewpointObservation
+from qmapnav.reasoning.colour_types import ColourEstimate
 
 
 def _candidate(
@@ -95,6 +96,30 @@ def _observation(
     )
 
 
+def _colour(
+    probabilities: dict[str, float],
+    confidence: float,
+    viewpoint: str,
+    *,
+    status: str = 'good',
+) -> ColourEstimate:
+    dominant = (
+        max(sorted(probabilities), key=probabilities.get)
+        if probabilities else None
+    )
+    return ColourEstimate(
+        probabilities,
+        dominant,
+        confidence,
+        250,
+        np.array([10.0, 0.8, 0.7]),
+        np.array([50.0, 20.0, 30.0]),
+        viewpoint,
+        f'detection_{viewpoint}',
+        status,
+    )
+
+
 def test_lifecycle_query_serialization_and_deterministic_reset() -> None:
     object_map = ObjectMap()
     candidate = _candidate('chair_a', (1.0, 2.0, 0.5))
@@ -117,6 +142,56 @@ def test_lifecycle_query_serialization_and_deterministic_reset() -> None:
     assert object_map.add_or_update(
         candidate, _observation(candidate, 'view_a', 1)
     ) == 0
+
+
+def test_colour_fusion_preserves_strong_evidence_and_invalid_updates() -> None:
+    object_map = ObjectMap(ObjectMapConfig(max_colour_history=3))
+    candidate = _candidate('chair_a', (1.0, 2.0, 0.5))
+    instance_id = object_map.add_or_update(
+        candidate, _observation(candidate, 'view_a', 1)
+    )
+    strong = _colour({'blue': 0.9, 'purple': 0.1}, 0.95, 'view_a')
+    poor = _colour({'blue': 0.1, 'purple': 0.9}, 0.15, 'view_b')
+    invalid = _colour({}, 0.0, 'view_c', status='too_few_pixels')
+
+    strong_weight = object_map.update_colour(instance_id, strong)
+    for _ in range(20):
+        object_map.update_colour(
+            instance_id,
+            poor,
+            crop_quality=0.2,
+            mask_quality=0.3,
+            geometry_support=0.2,
+        )
+    before_invalid = dict(object_map.get(instance_id).colour_scores)
+    assert object_map.update_colour(instance_id, invalid) == 0.0
+
+    record = object_map.record(instance_id)
+    assert strong_weight > 0.8
+    assert record.instance.colour_scores['blue'] > 0.8
+    assert dict(record.instance.colour_scores) == before_invalid
+    assert record.best_colour_estimate is strong
+    assert len(record.colour_estimates) == 3
+    assert record.colour_confidence > 0.0
+    serialized = object_map.serialize()[0]
+    assert serialized['best_colour_source']['viewpoint_id'] == 'view_a'
+    assert serialized['colour_scores']['blue'] > 0.8
+
+
+def test_colour_evidence_is_bounded_and_same_view_is_capped() -> None:
+    object_map = ObjectMap(ObjectMapConfig(max_colour_evidence=2.0))
+    candidate = _candidate('chair_a', (1.0, 2.0, 0.5))
+    instance_id = object_map.add_or_update(
+        candidate, _observation(candidate, 'view_a', 1)
+    )
+    estimate = _colour({'red': 0.8, 'brown': 0.2}, 1.0, 'view_a')
+
+    weights = [
+        object_map.update_colour(instance_id, estimate) for _ in range(10)
+    ]
+
+    assert sum(object_map.record(instance_id).colour_evidence.values()) <= 2.0
+    assert sum(weights) <= 1.5 + 1.0e-9
 
 
 def test_same_object_from_three_views_keeps_one_id_and_fuses_history() -> None:

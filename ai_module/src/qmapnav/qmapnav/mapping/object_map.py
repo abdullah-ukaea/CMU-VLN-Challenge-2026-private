@@ -27,6 +27,7 @@ from qmapnav.mapping.object_candidate import GeometryStatus
 from qmapnav.mapping.object_candidate import ObjectCandidate3D
 from qmapnav.mapping.object_candidate import readonly_array
 from qmapnav.mapping.viewpoint_observation import ViewpointObservation
+from qmapnav.reasoning.colour_types import ColourEstimate
 
 
 INSTANCE_STATUSES = frozenset({
@@ -49,6 +50,8 @@ class ObjectMapConfig:
     max_fused_points_per_instance: int = 50_000
     max_total_fused_points: int = 500_000
     max_observation_history: int = 100
+    max_colour_history: int = 32
+    max_colour_evidence: float = 12.0
     max_instances: int = 512
     minimum_refit_points: int = 8
     minimum_new_refit_points: int = 4
@@ -70,6 +73,7 @@ class ObjectMapConfig:
             'max_fused_points_per_instance',
             'max_total_fused_points',
             'max_observation_history',
+            'max_colour_history',
             'max_instances',
             'minimum_refit_points',
             'minimum_new_refit_points',
@@ -77,13 +81,17 @@ class ObjectMapConfig:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f'{name} must be a positive integer')
+        if not isfinite(self.max_colour_evidence) or (
+            self.max_colour_evidence <= 0.0
+        ):
+            raise ValueError('max_colour_evidence must be finite and positive')
         if self.max_total_fused_points < self.max_fused_points_per_instance:
             raise ValueError('total point cap must cover one per-instance cap')
 
 
 @dataclass(frozen=True)
 class PersistentObjectRecord:
-    """Rich read-only Day 7 state around the frozen shared contract."""
+    """Rich read-only persistent state around the frozen shared contract."""
 
     instance: ObjectInstance
     canonical_class: str
@@ -98,6 +106,10 @@ class PersistentObjectRecord:
     fused_points_xyz: np.ndarray
     observations: tuple[ViewpointObservation, ...]
     best_view_candidate_id: str
+    colour_evidence: Mapping[str, float] = field(default_factory=dict)
+    colour_confidence: float = 0.0
+    best_colour_estimate: ColourEstimate | None = None
+    colour_estimates: tuple[ColourEstimate, ...] = ()
 
     def __post_init__(self) -> None:
         if self.status not in INSTANCE_STATUSES:
@@ -115,6 +127,15 @@ class PersistentObjectRecord:
             crop = np.ascontiguousarray(self.best_crop).copy()
             crop.setflags(write=False)
             object.__setattr__(self, 'best_crop', crop)
+        if not isfinite(self.colour_confidence) or not (
+            0.0 <= self.colour_confidence <= 1.0
+        ):
+            raise ValueError('colour_confidence must lie in [0, 1]')
+        object.__setattr__(
+            self,
+            'colour_evidence',
+            MappingProxyType(dict(self.colour_evidence)),
+        )
 
 
 @dataclass(frozen=True)
@@ -166,6 +187,11 @@ class _InstanceState:
     fused_points_xyz: np.ndarray
     observations: list[ViewpointObservation]
     best_view_candidate: ObjectCandidate3D
+    colour_evidence: dict[str, float]
+    colour_confidence: float
+    best_colour_estimate: ColourEstimate | None
+    colour_estimates: list[ColourEstimate]
+    colour_view_weights: dict[str, float]
 
 
 class ObjectMap:
@@ -343,13 +369,107 @@ class ObjectMap:
                 raise KeyError(f'unknown object instance {instance_id}') from error
 
     def record(self, instance_id: int) -> PersistentObjectRecord:
-        """Return rich Day 7 metadata and bounded evidence by ID."""
+        """Return rich metadata and bounded geometry/colour evidence by ID."""
         with self._lock:
             try:
                 state = self._states[instance_id]
             except KeyError as error:
                 raise KeyError(f'unknown object instance {instance_id}') from error
             return self._record(state)
+
+    def update_colour(
+        self,
+        instance_id: int,
+        estimate: ColourEstimate,
+        *,
+        crop_quality: float = 1.0,
+        mask_quality: float = 1.0,
+        geometry_support: float = 1.0,
+    ) -> float:
+        """Fuse one colour observation and return its bounded evidence weight."""
+        if not isinstance(estimate, ColourEstimate):
+            raise TypeError('estimate must be ColourEstimate')
+        qualities = (crop_quality, mask_quality, geometry_support)
+        if any(not isfinite(value) or not 0.0 <= value <= 1.0
+               for value in qualities):
+            raise ValueError('colour quality terms must lie in [0, 1]')
+        with self._lock:
+            try:
+                state = self._states[instance_id]
+            except KeyError as error:
+                raise KeyError(f'unknown object instance {instance_id}') from error
+            state.colour_estimates.append(estimate)
+            if len(state.colour_estimates) > self.config.max_colour_history:
+                del state.colour_estimates[:-self.config.max_colour_history]
+            if not estimate.probabilities:
+                return 0.0
+            pixel_quality = min(1.0, estimate.valid_pixel_count / 250.0)
+            exposure_quality = 0.55 if estimate.status in {
+                'overexposed', 'underexposed', 'low_saturation'
+            } else 1.0
+            weight = (
+                estimate.confidence
+                * (0.25 + 0.75 * pixel_quality)
+                * crop_quality
+                * mask_quality
+                * geometry_support
+                * exposure_quality
+            )
+            view_key = estimate.source_viewpoint_id or '<unknown>'
+            previous_view_weight = state.colour_view_weights.get(view_key, 0.0)
+            remaining_view_capacity = max(0.0, 1.5 - previous_view_weight)
+            weight = min(weight, remaining_view_capacity)
+            if weight <= 0.0:
+                return 0.0
+            state.colour_view_weights[view_key] = previous_view_weight + weight
+            while (
+                len(state.colour_view_weights)
+                > self.config.max_colour_history
+            ):
+                oldest_view = next(iter(state.colour_view_weights))
+                state.colour_view_weights.pop(oldest_view)
+            for name, probability in estimate.probabilities.items():
+                state.colour_evidence[name] = (
+                    state.colour_evidence.get(name, 0.0)
+                    + weight * probability
+                )
+            total = sum(state.colour_evidence.values())
+            if total > self.config.max_colour_evidence:
+                scale = self.config.max_colour_evidence / total
+                state.colour_evidence = {
+                    name: value * scale
+                    for name, value in state.colour_evidence.items()
+                }
+                total = self.config.max_colour_evidence
+            probabilities = {
+                name: value / total
+                for name, value in sorted(state.colour_evidence.items())
+            }
+            state.colour_confidence = min(
+                1.0,
+                max(probabilities.values())
+                * (1.0 - exp(-total / 2.0)),
+            )
+            if (
+                state.best_colour_estimate is None
+                or estimate.confidence > state.best_colour_estimate.confidence
+            ):
+                state.best_colour_estimate = estimate
+            previous = state.instance
+            state.instance = ObjectInstance(
+                previous.instance_id,
+                previous.class_scores,
+                probabilities,
+                previous.centroid_xyz,
+                previous.aabb_min_xyz,
+                previous.aabb_max_xyz,
+                previous.obb_dimensions,
+                previous.obb_yaw,
+                previous.orientation_confidence,
+                previous.observation_count,
+                previous.confidence,
+            )
+            return weight
 
     def active_instances(
         self,
@@ -402,6 +522,21 @@ class ObjectMap:
                         if state.best_crop is not None else None
                     ),
                     'status': state.status,
+                    'colour_scores': dict(state.instance.colour_scores),
+                    'colour_confidence': state.colour_confidence,
+                    'colour_evidence': dict(state.colour_evidence),
+                    'best_colour_source': (
+                        {
+                            'viewpoint_id': (
+                                state.best_colour_estimate.source_viewpoint_id
+                            ),
+                            'detection_id': (
+                                state.best_colour_estimate.source_detection_id
+                            ),
+                            'status': state.best_colour_estimate.status,
+                        }
+                        if state.best_colour_estimate is not None else None
+                    ),
                     'fused_point_count': int(state.fused_points_xyz.shape[0]),
                     'best_view_candidate_id': (
                         state.best_view_candidate.candidate_id
@@ -536,6 +671,11 @@ class ObjectMap:
             fused_points_xyz=points,
             observations=[observation],
             best_view_candidate=candidate,
+            colour_evidence={},
+            colour_confidence=0.0,
+            best_colour_estimate=None,
+            colour_estimates=[],
+            colour_view_weights={},
         )
         return instance_id
 
@@ -709,6 +849,10 @@ class ObjectMap:
             fused_points_xyz=state.fused_points_xyz,
             observations=tuple(state.observations),
             best_view_candidate_id=state.best_view_candidate.candidate_id,
+            colour_evidence=state.colour_evidence,
+            colour_confidence=state.colour_confidence,
+            best_colour_estimate=state.best_colour_estimate,
+            colour_estimates=tuple(state.colour_estimates),
         )
 
     def _make_room_for_instance(self) -> None:

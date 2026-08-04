@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 
+import numpy as np
 import pytest
 from qmapnav.evaluation import InMemoryTraceRecorder
 from qmapnav.language import parse_question
@@ -69,8 +70,37 @@ def test_node_uses_only_permitted_official_topics(node: object) -> None:
     assert node._structural_map_marker_publisher.topic_name == (
         '/qmapnav/debug/structural_map'
     )
+    assert node._relation_marker_publisher.topic_name == (
+        '/qmapnav/debug/relations'
+    )
     assert node._official_marker_publisher.topic_name == '/selected_object_marker'
     assert not node._final_marker_guard.committed
+
+
+def test_colour_support_crop_keeps_own_mask_and_cluster_coordinates() -> None:
+    from qmapnav.mission.node import _crop_colour_support
+    from qmapnav.perception.contracts import Detection2D
+    from qmapnav.perception.contracts import PanoramaBox
+
+    boundary = np.array([
+        [10.0, 5.0], [30.0, 5.0], [30.0, 20.0], [10.0, 20.0]
+    ])
+    polygon = ((12.0, 7.0), (28.0, 7.0), (28.0, 18.0), (12.0, 18.0))
+    detection = Detection2D(
+        'chair', 'chair', 'chair', 0.9,
+        PanoramaBox(100, 40, ((10.0, 30.0),), 5.0, 20.0, boundary),
+        (0,), ((0.0, 0.0, 10.0, 10.0),), (20.0, 12.0),
+        np.array([1.0, 0.0, 0.0]),
+        metadata={'mask_polygons_panorama_uv': (polygon,)},
+    )
+
+    mask, support = _crop_colour_support(
+        (40, 100), detection, np.array([[15.0, 10.0], [80.0, 10.0]])
+    )
+
+    assert mask.shape == (15, 20)
+    assert mask[5, 5]
+    assert support.tolist() == [[5.0, 5.0]]
 
 
 def test_node_resets_day7_maps_without_touching_frozen_protocol(node: object) -> None:

@@ -17,7 +17,10 @@ from qmapnav.mission.marker_adapter import candidate_to_marker_spec
 from qmapnav.mission.marker_adapter import FinalMarkerGuard
 from qmapnav.mission.marker_adapter import marker_spec_to_ros
 from qmapnav.mission.marker_adapter import object_map_marker_array
+from qmapnav.mission.marker_adapter import relation_marker_array
 from qmapnav.mission.marker_adapter import structural_map_marker_array
+from qmapnav.reasoning.relation_graph import RelationGraph
+from qmapnav.reasoning.support_geometry import support_geometry
 
 
 def _candidate() -> ObjectCandidate3D:
@@ -183,3 +186,29 @@ def test_structural_markers_include_wall_normal_anchor_and_label() -> None:
     assert 'qmapnav_structural_anchors' in namespaces
     assert 'qmapnav_structural_labels' in namespaces
     assert 'qmapnav_structural_rays' in namespaces
+
+
+def test_relation_markers_are_separate_debug_arrows_and_labels() -> None:
+    first_candidate = _candidate()
+    first = ObjectInstance(
+        1, {'book': 1.0}, {}, np.array([1.5, 2.25, 1.15]),
+        np.array([1.3, 2.1, 1.1]), np.array([1.7, 2.4, 1.2]),
+        np.array([0.4, 0.3, 0.1]), 0.0, 0.9, 1, 0.9,
+    )
+    second = ObjectInstance(
+        2, {'table': 1.0}, {}, np.array([1.5, 2.25, 0.55]),
+        np.array([1.0, 1.75, 0.1]), np.array([2.0, 2.75, 1.1]),
+        np.array([1.0, 1.0, 1.0]), 0.0, 0.9, 1, 0.9,
+    )
+    entities = [support_geometry(first), support_geometry(second)]
+    graph = RelationGraph()
+    graph.recompute(entities)
+
+    markers = relation_marker_array(graph.edges, entities)
+    namespaces = {marker.ns for marker in markers.markers}
+
+    assert first_candidate is not None
+    assert 'qmapnav_relation_arrows' in namespaces
+    assert 'qmapnav_relation_labels' in namespaces
+    assert all(marker.ns != 'qmapnav_selected_object'
+               for marker in markers.markers)

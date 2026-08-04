@@ -12,11 +12,14 @@ from qmapnav.mapping.object_candidate import ObjectCandidate3D
 from qmapnav.mapping.object_map import ObjectAssociationEvent
 from qmapnav.mapping.structural_map import StructuralAnchor
 from qmapnav.mapping.structural_map import StructuralAssociationEvent
+from qmapnav.reasoning.relation_graph import SpatialRelation
+from qmapnav.reasoning.support_geometry import SupportGeometry
 
 
 CANDIDATE_MARKER_TOPIC = '/qmapnav/debug/object_candidates'
 OBJECT_MAP_MARKER_TOPIC = '/qmapnav/debug/object_map'
 STRUCTURAL_MAP_MARKER_TOPIC = '/qmapnav/debug/structural_map'
+RELATION_MARKER_TOPIC = '/qmapnav/debug/relations'
 OFFICIAL_MARKER_TOPIC = '/selected_object_marker'
 
 
@@ -364,6 +367,63 @@ def structural_map_marker_array(
     return output
 
 
+def relation_marker_array(
+    relations: tuple[SpatialRelation, ...],
+    entities: list[SupportGeometry],
+):
+    """Create debug-only relation arrows and confidence labels."""
+    from geometry_msgs.msg import Point
+    from visualization_msgs.msg import Marker
+    from visualization_msgs.msg import MarkerArray
+
+    output = MarkerArray()
+    clear = Marker()
+    clear.header.frame_id = 'map'
+    clear.ns = 'qmapnav_relations'
+    clear.action = Marker.DELETEALL
+    output.markers.append(clear)
+    by_id = {entity.entity_id: entity for entity in entities}
+    for index, relation in enumerate(relations):
+        subject = by_id.get(relation.subject_id)
+        anchor = by_id.get(relation.anchor_id)
+        if subject is None or anchor is None:
+            continue
+        arrow = Marker()
+        arrow.header.frame_id = 'map'
+        arrow.ns = 'qmapnav_relation_arrows'
+        arrow.id = index * 2
+        arrow.type = Marker.ARROW
+        arrow.action = Marker.ADD
+        arrow.scale.x = 0.025
+        arrow.scale.y = 0.06
+        arrow.scale.z = 0.08
+        arrow.color.r = 0.1
+        arrow.color.g = float(relation.confidence)
+        arrow.color.b = 1.0
+        arrow.color.a = 0.85
+        for xyz in (subject.centre_xyz, anchor.centre_xyz):
+            point = Point()
+            point.x, point.y, point.z = map(float, xyz)
+            arrow.points.append(point)
+        output.markers.append(arrow)
+        label = Marker()
+        label.header.frame_id = 'map'
+        label.ns = 'qmapnav_relation_labels'
+        label.id = index * 2 + 1
+        label.type = Marker.TEXT_VIEW_FACING
+        label.action = Marker.ADD
+        midpoint = (subject.centre_xyz + anchor.centre_xyz) / 2.0
+        label.pose.position.x, label.pose.position.y, label.pose.position.z = (
+            map(float, midpoint)
+        )
+        label.pose.orientation.w = 1.0
+        label.scale.z = 0.13
+        label.color.r = label.color.g = label.color.b = label.color.a = 1.0
+        label.text = f'{relation.relation}: {relation.confidence:.2f}'
+        output.markers.append(label)
+    return output
+
+
 class FinalMarkerGuard:
     """Allow one explicit official marker commitment per episode."""
 
@@ -410,6 +470,8 @@ __all__ = [
     'OBJECT_MAP_MARKER_TOPIC',
     'OFFICIAL_MARKER_TOPIC',
     'object_map_marker_array',
+    'RELATION_MARKER_TOPIC',
+    'relation_marker_array',
     'STRUCTURAL_MAP_MARKER_TOPIC',
     'structural_map_marker_array',
 ]

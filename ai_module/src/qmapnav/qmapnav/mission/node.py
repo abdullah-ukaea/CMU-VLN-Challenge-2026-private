@@ -75,6 +75,8 @@ from qmapnav.mission.marker_adapter import FinalMarkerGuard
 from qmapnav.mission.marker_adapter import object_map_marker_array
 from qmapnav.mission.marker_adapter import OBJECT_MAP_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import OFFICIAL_MARKER_TOPIC
+from qmapnav.mission.marker_adapter import relation_marker_array
+from qmapnav.mission.marker_adapter import RELATION_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import structural_map_marker_array
 from qmapnav.mission.marker_adapter import STRUCTURAL_MAP_MARKER_TOPIC
 from qmapnav.mission.question_latch import QuestionLatch
@@ -93,6 +95,18 @@ from qmapnav.perception.contracts import Detection2D
 from qmapnav.perception.contracts import PerceptionRequest
 from qmapnav.perception.panorama_projection import PanoramaCameraModel
 from qmapnav.perception.vocabulary import detector_classes_from_task_specification
+from qmapnav.reasoning.colour_classifier import classify_colour
+from qmapnav.reasoning.colour_classifier import ColourClassifierConfig
+from qmapnav.reasoning.colour_features import extract_colour_features
+from qmapnav.reasoning.colour_pixel_filter import ColourSelectionConfig
+from qmapnav.reasoning.colour_pixel_filter import filter_reliable_pixels
+from qmapnav.reasoning.colour_pixel_filter import select_object_pixels
+from qmapnav.reasoning.colour_prototypes import load_colour_prototypes
+from qmapnav.reasoning.colour_types import ColourEstimate
+from qmapnav.reasoning.relation_graph import RelationGraph
+from qmapnav.reasoning.support_geometry import support_geometry
+from qmapnav.reasoning.support_relations import SupportRelationConfig
+from qmapnav.reasoning.vertical_relations import VerticalRelationConfig
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -170,6 +184,12 @@ class QMapNavNode(Node):
         )
         self._object_map = object_map or self._create_object_map()
         self._structural_map = structural_map or self._create_structural_map()
+        self._colour_selection_config = self._create_colour_selection_config()
+        self._colour_classifier_config = self._create_colour_classifier_config()
+        self._colour_prototypes = load_colour_prototypes(
+            self._colour_prototype_path()
+        )
+        self._relation_graph = self._create_relation_graph()
         self._trace_recorder = trace_recorder or self._create_trace_recorder()
         self._waypoint_executor = SequentialWaypointExecutor(
             arrival_radius=float(self.get_parameter('arrival_radius').value),
@@ -233,6 +253,11 @@ class QMapNavNode(Node):
             STRUCTURAL_MAP_MARKER_TOPIC,
             5,
         )
+        self._relation_marker_publisher = self.create_publisher(
+            MarkerArray,
+            RELATION_MARKER_TOPIC,
+            5,
+        )
         self._official_marker_publisher = self.create_publisher(
             Marker,
             OFFICIAL_MARKER_TOPIC,
@@ -247,7 +272,7 @@ class QMapNavNode(Node):
         )
         self._trace(
             event='node_initialized',
-            selection_reason='day_7_persistent_mapping_runtime_ready',
+            selection_reason='day_8_colour_relation_runtime_ready',
             details={
                 'executor': {
                     'arrival_radius': self._waypoint_executor.arrival_radius,
@@ -270,6 +295,9 @@ class QMapNavNode(Node):
                 ),
                 'object_map': asdict(self._object_map.config),
                 'structural_map': asdict(self._structural_map.config),
+                'colour_selection': asdict(self._colour_selection_config),
+                'colour_classifier': asdict(self._colour_classifier_config),
+                'colour_prototype_path': str(self._colour_prototype_path()),
             },
         )
         self._projection_worker = BoundedProjectionWorker(
@@ -323,10 +351,16 @@ class QMapNavNode(Node):
         """Expose the bounded episode-local architectural map."""
         return self._structural_map
 
+    @property
+    def relation_graph(self) -> RelationGraph:
+        """Expose current derived Day 8 relations for downstream reasoning."""
+        return self._relation_graph
+
     def reset_persistent_maps(self) -> None:
         """Reset Day 7 object and structural identities at an episode boundary."""
         self._object_map.reset_episode()
         self._structural_map.reset_episode()
+        self._relation_graph.recompute([])
         self._structural_frame_count = 0
         self._persistent_path_xy.clear()
 
@@ -745,7 +779,7 @@ class QMapNavNode(Node):
                 best_crop_score=crop_score,
             ))
         try:
-            self._object_map.add_viewpoint_candidates(
+            instance_ids = self._object_map.add_viewpoint_candidates(
                 candidates, observations
             )
         except (TypeError, ValueError) as error:
@@ -757,6 +791,10 @@ class QMapNavNode(Node):
                 details={'error': str(error)},
             )
         else:
+            self._update_persistent_colours(
+                result, lifting, candidates, detections, observations,
+                instance_ids,
+            )
             for event in self._object_map.last_events:
                 self._trace(
                     event='object_association',
@@ -828,6 +866,135 @@ class QMapNavNode(Node):
                 self._structural_map.last_events,
             )
         )
+        relation_entities = [
+            support_geometry(self._object_map.record(item.instance_id))
+            for item in self._object_map.active_instances()
+        ]
+        relation_entities.extend(
+            support_geometry(anchor)
+            for anchor in self._structural_map.anchors()
+            if anchor.extent_xyz is not None
+        )
+        self._relation_graph.recompute(relation_entities)
+        self._relation_marker_publisher.publish(relation_marker_array(
+            self._relation_graph.edges, relation_entities
+        ))
+        self._trace(
+            event='relation_graph_recomputed',
+            selected_action='replace_derived_relation_graph',
+            selection_reason='persistent_geometry_updated',
+            details={
+                'revision': self._relation_graph.revision,
+                'relations': [
+                    {
+                        'relation': edge.relation,
+                        'subject_id': edge.subject_id,
+                        'anchor_id': edge.anchor_id,
+                        'confidence': edge.confidence,
+                        'gap_m': edge.evidence.vertical_gap_m,
+                        'support_overlap': (
+                            edge.evidence.subject_support_overlap
+                        ),
+                        'geometry_confidence': (
+                            edge.evidence.geometry_confidence
+                        ),
+                    }
+                    for edge in self._relation_graph.edges
+                ],
+                'contradictions': self._relation_graph.contradictions,
+            },
+        )
+
+    def _update_persistent_colours(
+        self,
+        result,
+        lifting,
+        candidates,
+        detections,
+        observations,
+        instance_ids,
+    ) -> None:
+        """Classify each selected observation and fuse it into its stable ID."""
+        projection_uv = _lifting_projection_uv(result, lifting.source)
+        for candidate, observation, instance_id in zip(
+            candidates, observations, instance_ids
+        ):
+            detection = detections.get(candidate.detection_id)
+            selection = None
+            if detection is not None and observation.best_crop is not None:
+                mask, support_uv = _crop_colour_support(
+                    result.panorama.image_rgb.shape[:2],
+                    detection,
+                    projection_uv[candidate.source_projection_indices],
+                )
+                selection = select_object_pixels(
+                    observation.best_crop,
+                    segmentation_mask=mask,
+                    geometry_support_uv=support_uv,
+                    config=self._colour_selection_config,
+                )
+            if selection is None:
+                estimate = ColourEstimate(
+                    {}, None, 0.0, 0, None, None,
+                    observation.viewpoint_id,
+                    observation.detection_id,
+                    'no_crop',
+                )
+                mask_quality = 0.0
+                geometry_quality = 0.0
+            else:
+                pixels = filter_reliable_pixels(
+                    selection, self._colour_selection_config
+                )
+                if pixels.rgb.shape[0] == 0:
+                    estimate = ColourEstimate(
+                        {}, None, 0.0, 0, None, None,
+                        observation.viewpoint_id,
+                        observation.detection_id,
+                        pixels.status,
+                    )
+                else:
+                    features = extract_colour_features(pixels)
+                    estimate = classify_colour(
+                        features,
+                        pixels,
+                        self._colour_prototypes,
+                        source_viewpoint_id=observation.viewpoint_id,
+                        source_detection_id=observation.detection_id,
+                        config=self._colour_classifier_config,
+                    )
+                mask_quality = max(
+                    0.0, 1.0 - selection.contamination_score
+                )
+                if selection.source.startswith('segmentation_mask'):
+                    mask_quality = max(mask_quality, 0.85)
+                geometry_quality = (
+                    candidate.geometry_confidence
+                    if 'geometry_support' in selection.source else 0.65
+                )
+            weight = self._object_map.update_colour(
+                instance_id,
+                estimate,
+                crop_quality=observation.best_crop_score,
+                mask_quality=mask_quality,
+                geometry_support=geometry_quality,
+            )
+            self._trace(
+                event='colour_observation_fused',
+                selected_action=(
+                    'update_colour_evidence' if weight > 0.0
+                    else 'preserve_previous_colour_evidence'
+                ),
+                selection_reason=estimate.status,
+                details={
+                    'instance_id': instance_id,
+                    'detection_id': observation.detection_id,
+                    'probabilities': dict(estimate.probabilities),
+                    'confidence': estimate.confidence,
+                    'valid_pixel_count': estimate.valid_pixel_count,
+                    'observation_weight': weight,
+                },
+            )
 
     def _save_projection_debug(
         self,
@@ -1276,7 +1443,110 @@ class QMapNavNode(Node):
             max_observation_history=int(self.get_parameter(
                 'object_map_max_observation_history'
             ).value),
+            max_colour_history=int(self.get_parameter(
+                'colour_max_observation_history'
+            ).value),
+            max_colour_evidence=float(self.get_parameter(
+                'colour_max_fused_evidence'
+            ).value),
         ))
+
+    def _colour_prototype_path(self) -> Path:
+        value = str(self.get_parameter('colour_prototype_path').value)
+        if value:
+            return Path(value)
+        source_path = Path(__file__).resolve().parents[2] / (
+            'benchmark/day8_colour_prototypes.json'
+        )
+        if source_path.exists():
+            return source_path
+        from ament_index_python.packages import get_package_share_directory
+
+        return Path(get_package_share_directory('qmapnav')) / (
+            'benchmark/day8_colour_prototypes.json'
+        )
+
+    def _create_colour_selection_config(self) -> ColourSelectionConfig:
+        return ColourSelectionConfig(
+            min_valid_pixels=int(
+                self.get_parameter('colour_min_valid_pixels').value
+            ),
+            mask_erosion_px=int(
+                self.get_parameter('colour_mask_erosion_px').value
+            ),
+            small_object_mask_erosion_px=int(self.get_parameter(
+                'colour_small_object_mask_erosion_px'
+            ).value),
+            geometry_support_dilation_px=int(self.get_parameter(
+                'colour_geometry_support_dilation_px'
+            ).value),
+            contracted_box_margin_fraction=float(self.get_parameter(
+                'colour_contracted_box_margin_fraction'
+            ).value),
+            low_saturation_threshold=float(self.get_parameter(
+                'colour_low_saturation_threshold'
+            ).value),
+            shadow_lower_percentile=float(self.get_parameter(
+                'colour_shadow_lower_percentile'
+            ).value),
+            highlight_value_threshold=float(self.get_parameter(
+                'colour_highlight_value_threshold'
+            ).value),
+            highlight_saturation_threshold=float(self.get_parameter(
+                'colour_highlight_saturation_threshold'
+            ).value),
+        )
+
+    def _create_colour_classifier_config(self) -> ColourClassifierConfig:
+        return ColourClassifierConfig(
+            probability_temperature=float(self.get_parameter(
+                'colour_probability_temperature'
+            ).value),
+            ambiguous_margin=float(
+                self.get_parameter('colour_ambiguous_margin').value
+            ),
+            min_valid_pixels=int(
+                self.get_parameter('colour_min_valid_pixels').value
+            ),
+            low_saturation_threshold=float(self.get_parameter(
+                'colour_low_saturation_threshold'
+            ).value),
+        )
+
+    def _create_relation_graph(self) -> RelationGraph:
+        return RelationGraph(
+            VerticalRelationConfig(
+                vertical_tolerance_m=float(self.get_parameter(
+                    'relation_above_vertical_tolerance'
+                ).value),
+            ),
+            SupportRelationConfig(
+                maximum_support_gap_m=float(self.get_parameter(
+                    'relation_maximum_support_gap'
+                ).value),
+                penetration_tolerance_m=float(self.get_parameter(
+                    'relation_penetration_tolerance'
+                ).value),
+                minimum_subject_support_overlap=float(self.get_parameter(
+                    'relation_minimum_subject_support_overlap'
+                ).value),
+                support_search_radius_m=float(self.get_parameter(
+                    'relation_support_search_radius'
+                ).value),
+                minimum_geometry_confidence=float(self.get_parameter(
+                    'relation_minimum_geometry_confidence'
+                ).value),
+                accept_on_confidence=float(self.get_parameter(
+                    'relation_accept_on_confidence'
+                ).value),
+                uncertain_on_confidence=float(self.get_parameter(
+                    'relation_uncertain_on_confidence'
+                ).value),
+                include_floor_supports=bool(self.get_parameter(
+                    'relation_include_floor_supports'
+                ).value),
+            ),
+        )
 
     def _create_structural_map(self) -> StructuralMap:
         wall_config = WallExtractionConfig(
@@ -1417,6 +1687,31 @@ class QMapNavNode(Node):
         self.declare_parameter('object_map_max_points_per_instance', 50_000)
         self.declare_parameter('object_map_max_total_points', 500_000)
         self.declare_parameter('object_map_max_observation_history', 100)
+        self.declare_parameter('colour_prototype_path', '')
+        self.declare_parameter('colour_min_valid_pixels', 50)
+        self.declare_parameter('colour_mask_erosion_px', 3)
+        self.declare_parameter('colour_small_object_mask_erosion_px', 1)
+        self.declare_parameter('colour_geometry_support_dilation_px', 3)
+        self.declare_parameter('colour_contracted_box_margin_fraction', 0.08)
+        self.declare_parameter('colour_low_saturation_threshold', 0.15)
+        self.declare_parameter('colour_shadow_lower_percentile', 5.0)
+        self.declare_parameter('colour_highlight_value_threshold', 0.92)
+        self.declare_parameter('colour_highlight_saturation_threshold', 0.12)
+        self.declare_parameter('colour_probability_temperature', 1.0)
+        self.declare_parameter('colour_ambiguous_margin', 0.12)
+        self.declare_parameter('colour_max_fused_evidence', 12.0)
+        self.declare_parameter('colour_max_observation_history', 32)
+        self.declare_parameter('relation_above_vertical_tolerance', 0.08)
+        self.declare_parameter('relation_maximum_support_gap', 0.15)
+        self.declare_parameter('relation_penetration_tolerance', 0.08)
+        self.declare_parameter(
+            'relation_minimum_subject_support_overlap', 0.50
+        )
+        self.declare_parameter('relation_support_search_radius', 2.0)
+        self.declare_parameter('relation_minimum_geometry_confidence', 0.25)
+        self.declare_parameter('relation_accept_on_confidence', 0.70)
+        self.declare_parameter('relation_uncertain_on_confidence', 0.40)
+        self.declare_parameter('relation_include_floor_supports', False)
         self.declare_parameter('structural_wall_update_interval', 10)
         self.declare_parameter('wall_min_height_above_ground', 0.20)
         self.declare_parameter('wall_min_segment_length', 0.50)
@@ -1490,6 +1785,78 @@ def _crop_detection(
     if not pieces:
         return None
     return np.ascontiguousarray(np.concatenate(pieces, axis=1)).copy()
+
+
+def _lifting_projection_uv(
+    result: ProjectionFrame,
+    source: GeometrySource,
+) -> np.ndarray:
+    """Return panorama coordinates indexed by lifted candidate support."""
+    if source is GeometrySource.CURRENT:
+        return result.current.panorama_uv
+    if source is GeometrySource.ACCUMULATED:
+        return result.accumulated.panorama_uv
+    if source is GeometrySource.COMBINED:
+        return np.vstack((
+            result.current.panorama_uv,
+            result.accumulated.panorama_uv,
+        ))
+    raise ValueError(f'unsupported lifting source {source!r}')
+
+
+def _crop_colour_support(
+    panorama_shape: tuple[int, int],
+    detection: Detection2D,
+    geometry_panorama_uv: np.ndarray,
+) -> tuple[np.ndarray | None, np.ndarray]:
+    """Crop the owning segmentation mask and map cluster UV into crop space."""
+    height, width = panorama_shape
+    y_min = max(0, int(np.floor(detection.panorama_box.y_min)))
+    y_max = min(height, int(np.ceil(detection.panorama_box.y_max)))
+    polygons = detection.metadata.get('mask_polygons_panorama_uv', ())
+    panorama_mask = None
+    if polygons:
+        panorama_mask = np.zeros((height, width), dtype=np.uint8)
+        valid_polygons = []
+        for polygon in polygons:
+            points = np.asarray(polygon, dtype=np.float64)
+            if points.ndim == 2 and points.shape[0] >= 3 and points.shape[1] == 2:
+                valid_polygons.append(np.rint(points).astype(np.int32))
+        if valid_polygons:
+            cv2.fillPoly(panorama_mask, valid_polygons, 1)
+        else:
+            panorama_mask = None
+    mask_pieces = []
+    local_support = []
+    x_offset = 0
+    support = np.asarray(geometry_panorama_uv, dtype=np.float64)
+    for x_min, x_max in detection.panorama_box.x_intervals:
+        left = max(0, int(np.floor(x_min)))
+        right = min(width, int(np.ceil(x_max)))
+        if right <= left:
+            continue
+        if panorama_mask is not None:
+            mask_pieces.append(panorama_mask[y_min:y_max, left:right])
+        if support.size:
+            keep = (
+                (support[:, 0] >= left) & (support[:, 0] < right)
+                & (support[:, 1] >= y_min) & (support[:, 1] < y_max)
+            )
+            if np.any(keep):
+                local = support[keep].copy()
+                local[:, 0] = local[:, 0] - left + x_offset
+                local[:, 1] -= y_min
+                local_support.append(local)
+        x_offset += right - left
+    cropped_mask = (
+        np.concatenate(mask_pieces, axis=1).astype(np.bool_)
+        if mask_pieces else None
+    )
+    support_uv = (
+        np.vstack(local_support)
+        if local_support else np.empty((0, 2), dtype=np.float64)
+    )
+    return cropped_mask, support_uv
 
 
 def _best_crop_score(
