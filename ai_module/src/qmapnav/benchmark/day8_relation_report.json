@@ -1,0 +1,105 @@
+{
+  "above": {
+    "case_count": 3,
+    "false_negative": 0,
+    "false_positive": 0,
+    "false_support_rate": 0.0,
+    "mean_confidence_by_geometry": {
+      "strong": 0.4698543510792552,
+      "weak": null
+    },
+    "precision": 1.0,
+    "recall": 1.0,
+    "true_negative": 1,
+    "true_positive": 2
+  },
+  "cases": {
+    "book_above_table": {
+      "accepted": true,
+      "confidence": 0.46225373691903726,
+      "expected": true,
+      "gap_m": 0.019999999999999907,
+      "overlap": 1.0,
+      "status": "accepted"
+    },
+    "book_on_table": {
+      "accepted": true,
+      "confidence": 0.8233333333333338,
+      "expected": true,
+      "gap_m": 0.019999999999999907,
+      "overlap": 1.0,
+      "status": "accepted"
+    },
+    "distant_not_above": {
+      "accepted": false,
+      "confidence": 0.0,
+      "expected": false,
+      "gap_m": 0.0,
+      "overlap": 0.0,
+      "status": "horizontally_irrelevant"
+    },
+    "distant_not_on": {
+      "accepted": false,
+      "confidence": 0.0,
+      "expected": false,
+      "gap_m": 0.0,
+      "overlap": 0.0,
+      "status": "insufficient_overlap"
+    },
+    "floating_not_on": {
+      "accepted": false,
+      "confidence": 0.0,
+      "expected": false,
+      "gap_m": 0.4999999999999998,
+      "overlap": 1.0,
+      "status": "no_contact"
+    },
+    "picture_above_desk": {
+      "accepted": true,
+      "confidence": 0.9473093163187285,
+      "expected": true,
+      "gap_m": 0.8,
+      "overlap": 1.0,
+      "status": "accepted"
+    },
+    "picture_above_not_on": {
+      "accepted": false,
+      "confidence": 0.0,
+      "expected": false,
+      "gap_m": 0.8,
+      "overlap": 1.0,
+      "status": "no_contact"
+    },
+    "sparse_not_confident": {
+      "accepted": false,
+      "confidence": 0.1820000000000001,
+      "expected": false,
+      "gap_m": 0.019999999999999907,
+      "overlap": 1.0,
+      "status": "weak_geometry"
+    },
+    "structural_shelf": {
+      "accepted": true,
+      "confidence": 0.95,
+      "expected": true,
+      "gap_m": 0.0,
+      "overlap": 0.9999999850988482,
+      "status": "accepted"
+    }
+  },
+  "on": {
+    "case_count": 6,
+    "false_negative": 0,
+    "false_positive": 0,
+    "false_support_rate": 0.0,
+    "mean_confidence_by_geometry": {
+      "strong": 0.3546666666666668,
+      "weak": 0.1820000000000001
+    },
+    "precision": 1.0,
+    "recall": 1.0,
+    "true_negative": 4,
+    "true_positive": 2
+  },
+  "provenance": "manually specified representative map-frame geometry"
+}
