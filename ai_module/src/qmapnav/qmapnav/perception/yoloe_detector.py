@@ -121,8 +121,20 @@ class YOLOEDetector:
         boxes = result.boxes.xyxy.detach().cpu().numpy()
         scores = result.boxes.conf.detach().cpu().numpy()
         class_ids = result.boxes.cls.detach().cpu().numpy().astype(int)
+        mask_polygons = (
+            tuple(result.masks.xy)
+            if result.masks is not None
+            else tuple(None for _ in range(len(boxes)))
+        )
+        if len(mask_polygons) != len(boxes):
+            mask_polygons = tuple(None for _ in range(len(boxes)))
         detections = []
-        for box, score, class_id in zip(boxes, scores, class_ids):
+        for box, score, class_id, mask_polygon in zip(
+            boxes,
+            scores,
+            class_ids,
+            mask_polygons,
+        ):
             label = names[class_id] if isinstance(names, dict) else names[class_id]
             resolved = canonical_for_text_label(str(label), prompt_to_canonical)
             if resolved is None:
@@ -131,6 +143,10 @@ class YOLOEDetector:
             clipped = _clip_box(box, view.geometry.width, view.geometry.height)
             if clipped is None:
                 continue
+            metadata = {'candidate': self.identity.candidate_name}
+            polygon = _mask_polygon_tuple(mask_polygon)
+            if polygon:
+                metadata['mask_polygon_crop_xy'] = polygon
             detections.append(
                 CropDetection(
                     crop_id=view.geometry.crop_id,
@@ -138,7 +154,7 @@ class YOLOEDetector:
                     prompt_used=normalized_prompt,
                     confidence=float(score),
                     bbox_xyxy=clipped,
-                    metadata={'candidate': self.identity.candidate_name},
+                    metadata=metadata,
                 )
             )
         return validate_candidate_detections(
@@ -179,3 +195,20 @@ def _clip_box(
     if x_max <= x_min or y_max <= y_min:
         return None
     return x_min, y_min, x_max, y_max
+
+
+def _mask_polygon_tuple(
+    polygon: np.ndarray | None,
+) -> tuple[tuple[float, float], ...]:
+    """Convert one optional Ultralytics polygon into immutable coordinates."""
+    if polygon is None:
+        return ()
+    points = np.asarray(polygon, dtype=np.float64)
+    if (
+        points.ndim != 2
+        or points.shape[0] < 3
+        or points.shape[1] != 2
+        or not np.all(np.isfinite(points))
+    ):
+        return ()
+    return tuple((float(point[0]), float(point[1])) for point in points)

@@ -30,6 +30,7 @@ def _detection(
     *,
     class_name: str = 'chair',
     ray: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    metadata=None,
 ) -> Detection2D:
     normalized_ray = np.asarray(ray, dtype=np.float64)
     normalized_ray /= np.linalg.norm(normalized_ray)
@@ -43,6 +44,7 @@ def _detection(
         crop_boxes_xyxy=((1.0, 2.0, 10.0, 20.0),),
         centre_panorama_uv=(50.0, 40.0),
         centre_camera_ray=normalized_ray,
+        metadata=metadata or {},
     )
 
 
@@ -64,8 +66,26 @@ def test_nested_boxes_merge_when_iou_is_low_but_containment_is_high() -> None:
 
 
 def test_same_class_overlap_from_two_crops_merges_and_preserves_sources() -> None:
-    first = _detection('frame:chair:0:0', 0, _box(((10.0, 30.0),)), 0.9)
-    second = _detection('frame:chair:1:0', 1, _box(((12.0, 32.0),)), 0.7)
+    first = _detection(
+        'frame:chair:0:0',
+        0,
+        _box(((10.0, 30.0),)),
+        0.9,
+        metadata={
+            'mask_polygons_panorama_uv': (((10.0, 20.0), (30.0, 20.0), (20.0, 60.0)),),
+            'mask_source_crop_ids': (0,),
+        },
+    )
+    second = _detection(
+        'frame:chair:1:0',
+        1,
+        _box(((12.0, 32.0),)),
+        0.7,
+        metadata={
+            'mask_polygons_panorama_uv': (((12.0, 20.0), (32.0, 20.0), (22.0, 60.0)),),
+            'mask_source_crop_ids': (1,),
+        },
+    )
 
     merged = cross_crop_nms((second, first), iou_threshold=0.4)
 
@@ -74,6 +94,8 @@ def test_same_class_overlap_from_two_crops_merges_and_preserves_sources() -> Non
     assert merged[0].crop_ids == (0, 1)
     assert merged[0].seam_merged is True
     assert merged[0].metadata['premerge_count'] == 2
+    assert len(merged[0].metadata['mask_polygons_panorama_uv']) == 2
+    assert merged[0].metadata['mask_source_crop_ids'] == (0, 1)
 
 
 def test_seam_crossing_duplicates_merge_without_bad_centre_average() -> None:

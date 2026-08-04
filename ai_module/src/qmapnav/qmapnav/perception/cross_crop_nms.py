@@ -83,6 +83,27 @@ def project_crop_detections(
             view.geometry,
             panorama_model,
         )
+        metadata = dict(detection.metadata)
+        mask_polygon = metadata.pop('mask_polygon_crop_xy', ())
+        if mask_polygon:
+            polygon_pixels = np.asarray(mask_polygon, dtype=np.float64)
+            polygon_rays = crop_pixels_to_camera_rays(
+                polygon_pixels,
+                view.geometry,
+            )
+            polygon_uv, polygon_valid = camera_rays_to_panorama_pixels(
+                polygon_rays,
+                panorama_model,
+            )
+            polygon_uv = polygon_uv[polygon_valid]
+            if polygon_uv.shape[0] >= 3:
+                metadata['mask_polygons_panorama_uv'] = (
+                    tuple(
+                        (float(point[0]), float(point[1]))
+                        for point in polygon_uv
+                    ),
+                )
+                metadata['mask_source_crop_ids'] = (detection.crop_id,)
         mapped.append(
             Detection2D(
                 detection_id=(
@@ -97,7 +118,7 @@ def project_crop_detections(
                 crop_boxes_xyxy=(detection.bbox_xyxy,),
                 centre_panorama_uv=tuple(float(value) for value in centre_uv),
                 centre_camera_ray=centre_ray,
-                metadata=dict(detection.metadata),
+                metadata=metadata,
             )
         )
     return tuple(mapped)
@@ -199,6 +220,21 @@ def _merge_with_representative(
         detection.detection_id for detection in duplicates
     )
     metadata['premerge_count'] = len(group)
+    polygons = tuple(
+        polygon
+        for detection in group
+        for polygon in detection.metadata.get(
+            'mask_polygons_panorama_uv',
+            (),
+        )
+    )
+    if polygons:
+        metadata['mask_polygons_panorama_uv'] = polygons
+        metadata['mask_source_crop_ids'] = tuple(
+            crop_id
+            for detection in group
+            for crop_id in detection.metadata.get('mask_source_crop_ids', ())
+        )
     return replace(
         representative,
         crop_ids=tuple(item[0] for item in crop_evidence),
