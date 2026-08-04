@@ -1,0 +1,111 @@
+{
+  "calibration": [
+    {
+      "accuracy": null,
+      "count": 0,
+      "lower": 0.0,
+      "mean_confidence": null,
+      "upper": 0.2
+    },
+    {
+      "accuracy": null,
+      "count": 0,
+      "lower": 0.2,
+      "mean_confidence": null,
+      "upper": 0.4
+    },
+    {
+      "accuracy": 0.05063291139240506,
+      "count": 79,
+      "lower": 0.4,
+      "mean_confidence": 0.5107828262902457,
+      "upper": 0.6
+    },
+    {
+      "accuracy": 1.0,
+      "count": 21,
+      "lower": 0.6,
+      "mean_confidence": 0.7326876256308567,
+      "upper": 0.8
+    },
+    {
+      "accuracy": 0.8744075829383886,
+      "count": 422,
+      "lower": 0.8,
+      "mean_confidence": 0.9709089710700055,
+      "upper": 1.0
+    }
+  ],
+  "case_count": 522,
+  "confusion_matrix": {
+    "black": {
+      "black": 168
+    },
+    "blue": {
+      "blue": 8
+    },
+    "brown": {
+      "brown": 48
+    },
+    "green": {
+      "green": 10,
+      "orange": 11
+    },
+    "grey": {
+      "grey": 129,
+      "white": 102
+    },
+    "orange": {
+      "orange": 1
+    },
+    "pink": {
+      "pink": 1
+    },
+    "purple": {
+      "purple": 5
+    },
+    "red": {
+      "brown": 15,
+      "red": 22
+    },
+    "yellow": {
+      "yellow": 2
+    }
+  },
+  "coverage": 1.0,
+  "evaluation_source": "released per-object RGB metadata",
+  "expected_calibration_error": 0.1584080247705436,
+  "fit_scenes": [
+    "arabic_room",
+    "chinese_room",
+    "home_building_1",
+    "home_building_2",
+    "hotel_room_2",
+    "japanese_room",
+    "livingroom_1",
+    "livingroom_2",
+    "livingroom_3",
+    "livingroom_4",
+    "loft",
+    "studio"
+  ],
+  "held_out_scenes": [
+    "hotel_room_1",
+    "office_1",
+    "office_2"
+  ],
+  "scene_case_counts": {
+    "hotel_room_1": 110,
+    "office_1": 172,
+    "office_2": 240
+  },
+  "status_counts": {
+    "ambiguous": 68,
+    "good": 202,
+    "low_saturation": 84,
+    "underexposed": 168
+  },
+  "top1_accuracy": 0.7547892720306514,
+  "top2_accuracy": 0.9712643678160919,
+  "valid_count": 522
+}

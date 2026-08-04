@@ -4,6 +4,9 @@ from dataclasses import dataclass
 import re
 from typing import Iterable
 
+from qmapnav.common.colour_vocabulary import COLOUR_ALIASES
+from qmapnav.common.colour_vocabulary import COLOUR_CLASSES
+from qmapnav.common.colour_vocabulary import normalize_colour_name
 from qmapnav.language.classification import classify_task_type
 from qmapnav.language.classification import INSTRUCTION_FOLLOWING
 
@@ -275,18 +278,8 @@ _STRUCTURAL_ENTITIES = {
 }
 
 _COLOURS = {
-    'black': 'black',
-    'blue': 'blue',
-    'brown': 'brown',
-    'gray': 'grey',
-    'green': 'green',
-    'grey': 'grey',
-    'orange': 'orange',
-    'pink': 'pink',
-    'purple': 'purple',
-    'red': 'red',
-    'white': 'white',
-    'yellow': 'yellow',
+    term.replace('_', ' '): normalize_colour_name(term)
+    for term in (*COLOUR_CLASSES, *COLOUR_ALIASES)
 }
 
 # These conservative lexical attributes complement colour without attempting a
