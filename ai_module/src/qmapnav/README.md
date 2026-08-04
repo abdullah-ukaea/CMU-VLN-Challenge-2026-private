@@ -6,7 +6,9 @@ Challenge 2026. It is a ROS 2 Jazzy `ament_python` package.
 The package includes the deterministic language layer, bounded sequential
 waypoint execution, registered-scan maps, observational decision tracing, Day
 4 panoramic perception, and the Day 5 source-time camera-LiDAR projection and
-rolling densification path.
+rolling densification path. Day 6 adds single-observation point cleaning,
+distance-aware clustering, robust AABB/upright-OBB estimation, orientation
+confidence, and strictly separated debug/final marker adapters.
 
 Day 3 development infrastructure adds validated adapters for released
 questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
@@ -99,6 +101,11 @@ The measured map/sensor/camera frame chain is frozen in
 current and accumulated projection, detection support, overlays, and the
 five-case regression pack are documented in
 [`docs/projection.md`](docs/projection.md).
+
+Day 6 detection-to-geometry contracts, cleaning and clustering policy,
+confidence-aware upright boxes, marker safety boundary, measured box-versus-mask
+decision, and saved simulator regressions are documented in
+[`docs/day_6_lifting.md`](docs/day_6_lifting.md).
 
 ## Build
 

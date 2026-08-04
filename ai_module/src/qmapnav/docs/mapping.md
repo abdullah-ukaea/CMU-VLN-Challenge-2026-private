@@ -51,3 +51,18 @@ coarse navigation/recovery map. It uses configurable age, radius, raw-point,
 and centroid-voxel bounds to preserve denser tabletop and furniture geometry
 for projection. Its contract and measured behavior are documented in
 [`projection.md`](projection.md).
+
+## Day 6 single-observation object geometry
+
+Day 6 consumes Day 4 detections and Day 5 projected support without changing
+either contract. It selects wrap-aware box or optional mask proposals, removes
+ground and background depth layers, selects a coherent distance-aware cluster,
+and fits both a robust AABB and upright OBB. Orientation and overall geometry
+confidence remain separate, and weak yaw evidence produces an explicit
+map-aligned fallback.
+
+These outputs are observation candidates only. They do not implement persistent
+identity, cross-view fusion, structural extraction, relations, or final answer
+selection. Contracts, defaults, measured Office 1 results, marker-topic safety,
+and the five-case replay pack are documented in
+[`day_6_lifting.md`](day_6_lifting.md).
