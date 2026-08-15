@@ -19,6 +19,8 @@ def make_day4_baseline_worker(
     panorama_height: int,
     *,
     checkpoint: str | Path = DAY4_BASELINE_CHECKPOINT,
+    confidence_threshold: float = DAY4_BASELINE_CONFIDENCE,
+    cross_crop_iou_threshold: float = DAY4_BASELINE_CROSS_CROP_IOU,
 ) -> PerceptionWorker:
     """Construct the selected eight-crop compact-YOLOE worker."""
     camera_model = PanoramaCameraModel(panorama_width, panorama_height)
@@ -30,6 +32,6 @@ def make_day4_baseline_worker(
     return PerceptionWorker(
         crop_generator,
         detector,
-        confidence_threshold=DAY4_BASELINE_CONFIDENCE,
-        cross_crop_iou_threshold=DAY4_BASELINE_CROSS_CROP_IOU,
+        confidence_threshold=confidence_threshold,
+        cross_crop_iou_threshold=cross_crop_iou_threshold,
     )

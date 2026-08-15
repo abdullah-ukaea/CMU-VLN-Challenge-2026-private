@@ -1,0 +1,171 @@
+qmapnav:
+  ros__parameters:
+    # Frozen Day 1 protocol and episode bounds.
+    arrival_radius: 0.75
+    progress_epsilon: 0.15
+    no_progress_timeout: 12.0
+    direct_republish_limit: 1
+    safe_offset_limit: 1
+    watchdog_period: 0.25
+    recovery_offset_distance: 0.75
+    recovery_clearance: 0.35
+    episode_time_limit: 600.0
+
+    # Measured Day 4 detector baseline. Both checkpoints are image assets.
+    detector_checkpoint: /home/docker/models/yoloe-11s-seg.pt
+    detector_confidence_threshold: 0.20
+    detector_cross_crop_iou_threshold: 0.40
+    panorama_width: 1920
+    panorama_height: 640
+
+    # Day 12 persistent-ID count commitment.
+    numerical_required_consecutive_updates: 3
+    numerical_required_independent_viewpoints: 2
+    numerical_minimum_count_confidence: 0.50
+    numerical_maximum_unresolved_candidates: 0
+    numerical_final_commit_reserve_sec: 30.0
+    numerical_maximum_verification_sec: 180.0
+
+    # Day 10 object answer policy and bounded re-observation.
+    publish_object_matching_waypoint: true
+    object_reference_initial_observations: 3
+    object_reference_final_commit_reserve_sec: 30.0
+    object_reference_result_directory: /tmp/qmapnav/object_reference
+    object_reference_case_id: runtime_object_reference
+    object_reference_scene_id: unknown
+    object_reference_run_id: submission_v1
+    targeted_viewpoint_minimum_margin: 0.12
+    targeted_viewpoint_minimum_geometry_confidence: 0.35
+    targeted_viewpoint_minimum_time_remaining: 45.0
+    targeted_viewpoint_standoff_m: 2.0
+    targeted_viewpoint_lateral_offset_m: 0.8
+    targeted_viewpoint_maximum_travel_m: 4.0
+    targeted_viewpoint_clearance_m: 0.35
+
+    # Rolling map and frame contracts.
+    scan_frame: map
+    scan_voxel_size: 0.20
+    scan_max_range: 30.0
+    scan_max_age_seconds: 120.0
+    scan_max_voxels: 200000
+    scan_max_views: 16
+    pose_parent_frame: map
+    pose_child_frame: sensor
+    camera_translation_sensor_xyz: [0.0, 0.0, 0.1]
+    camera_orientation_sensor_xyzw: [-0.5, 0.5, -0.5, 0.5]
+
+    # Synchronisation, projection, and dense scan bounds.
+    projection_max_pose_delta_ms: 50.0
+    projection_max_scan_delta_ms: 150.0
+    projection_buffer_seconds: 5.0
+    projection_max_pose_items: 2000
+    projection_max_scan_items: 64
+    projection_min_range: 0.30
+    projection_max_range: 30.0
+    projection_timing_warning_ms: 100.0
+    projection_sparse_point_threshold: 8
+    projection_high_depth_iqr: 2.0
+    dense_scan_voxel_size: 0.04
+    dense_scan_max_age_seconds: 15.0
+    dense_scan_max_radius: 12.0
+    dense_scan_max_points: 1000000
+    projection_worker_queue_size: 2
+    projection_shutdown_timeout: 2.0
+    projection_debug_directory: ''
+    projection_max_saved_frames: 5
+    projection_regression_category: ''
+    projection_regression_scene_id: unknown
+    projection_regression_pose_id: unknown
+    projection_regression_notes: Live camera-LiDAR alignment regression.
+
+    # Day 6 lifting and OBB policy.
+    lifting_source: accumulated
+    lifting_use_masks: false
+    lifting_bbox_inner_margin: 0.05
+    lifting_ground_clearance: 0.07
+    lifting_floor_standing_clearance: 0.02
+    lifting_depth_bin_width: 0.15
+    lifting_depth_minimum_mode_points: 5
+    lifting_depth_maximum_band: 1.5
+    lifting_dbscan_base_epsilon: 0.07
+    lifting_dbscan_range_slope: 0.015
+    lifting_dbscan_minimum_samples: 5
+    lifting_box_lower_percentile: 2.5
+    lifting_box_upper_percentile: 97.5
+    lifting_orientation_low_confidence: 0.40
+    lifting_orientation_high_confidence: 0.70
+    lifting_sparse_point_threshold: 8
+
+    # Day 7 persistent object association.
+    object_map_accept_threshold: 0.62
+    object_map_uncertain_threshold: 0.55
+    object_map_yaw_confidence_threshold: 0.50
+    object_map_same_keyframe_distance: 0.30
+    object_map_same_keyframe_overlap: 0.60
+    object_map_fused_voxel_size: 0.03
+    object_map_max_points_per_instance: 50000
+    object_map_max_total_points: 500000
+    object_map_max_observation_history: 100
+
+    # Day 8 colour calibration and fusion. Empty path resolves to package data.
+    colour_prototype_path: ''
+    colour_min_valid_pixels: 50
+    colour_mask_erosion_px: 3
+    colour_small_object_mask_erosion_px: 1
+    colour_geometry_support_dilation_px: 3
+    colour_contracted_box_margin_fraction: 0.08
+    colour_low_saturation_threshold: 0.15
+    colour_shadow_lower_percentile: 5.0
+    colour_highlight_value_threshold: 0.92
+    colour_highlight_saturation_threshold: 0.12
+    colour_probability_temperature: 1.0
+    colour_ambiguous_margin: 0.12
+    colour_max_fused_evidence: 12.0
+    colour_max_observation_history: 32
+
+    # Day 8/9 relations and complete-hypothesis resolution.
+    relation_above_vertical_tolerance: 0.08
+    relation_maximum_support_gap: 0.15
+    relation_penetration_tolerance: 0.08
+    relation_minimum_subject_support_overlap: 0.50
+    relation_support_search_radius: 2.0
+    relation_minimum_geometry_confidence: 0.25
+    relation_accept_on_confidence: 0.70
+    relation_uncertain_on_confidence: 0.40
+    relation_include_floor_supports: false
+    reasoning_minimum_class_probability: 0.15
+    reasoning_minimum_colour_probability: 0.10
+    reasoning_minimum_geometry_confidence: 0.20
+    reasoning_near_base_margin_m: 0.40
+    reasoning_near_size_scale: 0.75
+    reasoning_between_projection_tolerance: 0.05
+    reasoning_between_max_relative_perpendicular_distance: 0.35
+    reasoning_between_min_anchor_separation_m: 0.30
+    reasoning_resolved_minimum_score: 0.65
+    reasoning_resolved_minimum_margin: 0.12
+    reasoning_ambiguous_margin: 0.08
+
+    # Traversability, structural extraction, and anchor fusion.
+    robot_footprint_width_m: 0.55
+    corridor_safety_clearance_m: 0.15
+    corridor_minimum_depth_m: 0.60
+    corridor_occupancy_free_fraction: 0.90
+    corridor_maximum_anchor_separation_m: 5.0
+    structural_wall_update_interval: 10
+    wall_min_height_above_ground: 0.20
+    wall_min_segment_length: 0.50
+    wall_max_line_residual: 0.08
+    wall_merge_angle_deg: 5.0
+    wall_merge_perpendicular_distance: 0.12
+    wall_preserve_opening_width: 0.60
+    wall_max_candidate_points: 50000
+    structural_ray_parallel_epsilon: 0.000001
+    structural_max_wall_extent_margin: 0.25
+    structural_anchor_merge_distance: 0.55
+    structural_ambiguous_wall_distance_margin: 0.10
+
+    # Bounded, local decision trace.
+    trace_path: /tmp/qmapnav/decision_trace.jsonl
+    trace_max_queue_size: 512
+    trace_max_file_bytes: 4194304
+    trace_flush_timeout: 1.0
