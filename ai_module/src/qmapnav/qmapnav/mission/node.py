@@ -15,6 +15,7 @@ from geometry_msgs.msg import Pose2D
 from nav_msgs.msg import Odometry
 import numpy as np
 from qmapnav.common import TaskSpecification
+from qmapnav.counting import CountStabilityConfig
 from qmapnav.evaluation import classify_primary_failure
 from qmapnav.evaluation import DecisionTraceEvent
 from qmapnav.evaluation import JsonlDecisionTraceRecorder
@@ -88,6 +89,10 @@ from qmapnav.mission.marker_adapter import RELATION_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import structural_map_marker_array
 from qmapnav.mission.marker_adapter import STRUCTURAL_MAP_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import validate_marker_spec
+from qmapnav.mission.numerical_episode import NumericalEpisodeCoordinator
+from qmapnav.mission.numerical_episode import NumericalEpisodeState
+from qmapnav.mission.numerical_output_adapter import NumericalOutputAdapter
+from qmapnav.mission.numerical_output_adapter import OFFICIAL_NUMERICAL_TOPIC
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
 from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
@@ -134,6 +139,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import Int32
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
@@ -202,6 +208,7 @@ class QMapNavNode(Node):
         self._object_reference_selected_viewpoint = None
         self._object_reference_started_at: float | None = None
         self._object_reference_fusion_events: deque[dict] = deque(maxlen=512)
+        self._numerical_episode: NumericalEpisodeCoordinator | None = None
 
         self._question_latch = QuestionLatch()
         self._task_specification: TaskSpecification | None = None
@@ -299,6 +306,14 @@ class QMapNavNode(Node):
             OFFICIAL_MARKER_TOPIC,
             5,
         )
+        self._numerical_publisher = self.create_publisher(
+            Int32,
+            OFFICIAL_NUMERICAL_TOPIC,
+            5,
+        )
+        self._numerical_output_adapter = NumericalOutputAdapter(
+            self._numerical_publisher.publish
+        )
         self._final_marker_guard = FinalMarkerGuard(
             self._official_marker_publisher.publish
         )
@@ -359,6 +374,14 @@ class QMapNavNode(Node):
     def question_latch(self) -> QuestionLatch:
         """Expose read-only latch state for composition and evaluation."""
         return self._question_latch
+
+    def configure_perception_worker(self, worker: object) -> None:
+        """Install the submission detector once, before ROS spinning starts."""
+        if worker is None:
+            raise ValueError('perception worker must not be None')
+        if self._perception_worker is not None:
+            raise RuntimeError('perception worker is already configured')
+        self._perception_worker = worker
 
     @property
     def task_specification(self) -> TaskSpecification | None:
@@ -595,6 +618,27 @@ class QMapNavNode(Node):
             1.0 - 2.0 * (orientation[1] ** 2 + orientation[2] ** 2),
         )
 
+    @staticmethod
+    def _projection_viewpoint_id(result: ProjectionFrame) -> str:
+        """Quantize map pose so stationary frames are not independent views."""
+        pose = result.association.pose
+        x, y = pose.position_xyz[:2]
+        orientation = pose.orientation_xyzw
+        yaw = atan2(
+            2.0 * (
+                orientation[3] * orientation[2]
+                + orientation[0] * orientation[1]
+            ),
+            1.0 - 2.0 * (
+                orientation[1] ** 2 + orientation[2] ** 2
+            ),
+        )
+        return 'map_pose_{:.1f}_{:.1f}_{:.1f}'.format(
+            round(float(x) * 2.0) / 2.0,
+            round(float(y) * 2.0) / 2.0,
+            round(float(yaw) * 6.0) / 6.0,
+        )
+
     def _commit_object_reference_answer(self, resolution) -> None:
         if self._object_reference_state in {'committed', 'marker_published'}:
             return
@@ -643,6 +687,72 @@ class QMapNavNode(Node):
         self._write_object_reference_result(
             resolution, marker_spec, marker_errors, protocol_valid
         )
+
+    def _advance_numerical_episode(self, viewpoint_id: str) -> None:
+        """Fold one persistent-map snapshot into bounded count stability."""
+        coordinator = self._numerical_episode
+        if (
+            coordinator is None
+            or coordinator.state is not NumericalEpisodeState.COLLECTING
+        ):
+            return
+        action = coordinator.evaluate(
+            self._object_map,
+            self._structural_map,
+            viewpoint_id=viewpoint_id,
+            time_remaining_sec=max(
+                0.0, self._episode_time_limit - self._elapsed()
+            ),
+            episode_time_sec=self._elapsed(),
+        )
+        self._trace(
+            event='numerical_count_evaluated',
+            selected_action=action.action,
+            selection_reason=action.reason,
+            details=action.to_dict(),
+        )
+        if action.action == 'commit':
+            self._publish_numerical_action(action)
+
+    def _force_numerical_commit(self, reason: str) -> None:
+        """Publish a best-available count before a deadline."""
+        coordinator = self._numerical_episode
+        if (
+            coordinator is None
+            or coordinator.state is not NumericalEpisodeState.COLLECTING
+        ):
+            return
+        action = coordinator.force_commit(
+            self._object_map,
+            self._structural_map,
+            reason=reason,
+        )
+        self._trace(
+            event='numerical_deadline_commit',
+            selected_action='publish_best_available_count',
+            selection_reason=reason,
+            details=action.to_dict(),
+        )
+        self._publish_numerical_action(action)
+
+    def _publish_numerical_action(self, action) -> None:
+        """Commit exactly one official Int32 response, including zero."""
+        was_committed = self._numerical_output_adapter.committed
+        commitment = self._numerical_output_adapter.commit(action.result)
+        if not was_committed and self._numerical_episode is not None:
+            self._numerical_episode.notify_published()
+            self._trace(
+                event='official_numerical_response_committed',
+                selected_action='publish_numerical_response',
+                selection_reason=commitment.reason,
+                terminal_status='complete',
+                details={
+                    'count': commitment.count,
+                    'stable': commitment.stable,
+                    'topic': OFFICIAL_NUMERICAL_TOPIC,
+                    'message_type': 'std_msgs/msg/Int32',
+                },
+            )
 
     def _write_object_reference_result(
         self,
@@ -930,6 +1040,35 @@ class QMapNavNode(Node):
                     selected_action='collect_initial_evidence',
                     selection_reason='object_reference_task_latched',
                 )
+            if self._task_specification.task_type == 'numerical':
+                self._numerical_episode = NumericalEpisodeCoordinator(
+                    stability_config=CountStabilityConfig(
+                        required_consecutive_updates=int(self.get_parameter(
+                            'numerical_required_consecutive_updates'
+                        ).value),
+                        required_independent_viewpoints=int(self.get_parameter(
+                            'numerical_required_independent_viewpoints'
+                        ).value),
+                        minimum_count_confidence=float(self.get_parameter(
+                            'numerical_minimum_count_confidence'
+                        ).value),
+                        maximum_unresolved_candidates=int(self.get_parameter(
+                            'numerical_maximum_unresolved_candidates'
+                        ).value),
+                        final_commit_reserve_sec=float(self.get_parameter(
+                            'numerical_final_commit_reserve_sec'
+                        ).value),
+                        maximum_verification_sec=float(self.get_parameter(
+                            'numerical_maximum_verification_sec'
+                        ).value),
+                    )
+                )
+                self._numerical_episode.start(self._task_specification)
+                self._trace(
+                    event='numerical_episode_started',
+                    selected_action='collect_persistent_count_evidence',
+                    selection_reason='numerical_task_latched',
+                )
             self.get_logger().info('Accepted challenge question')
         elif decision.status is QuestionLatchStatus.DUPLICATE:
             self._trace(
@@ -1004,6 +1143,17 @@ class QMapNavNode(Node):
 
     def _on_watchdog(self) -> None:
         if self._expire_episode_if_needed():
+            return
+        if (
+            self._numerical_episode is not None
+            and self._numerical_episode.state
+            is NumericalEpisodeState.COLLECTING
+            and self._episode_time_limit - self._elapsed()
+            <= float(self.get_parameter(
+                'numerical_final_commit_reserve_sec'
+            ).value)
+        ):
+            self._force_numerical_commit('final_response_reserve_reached')
             return
         if (
             self._object_reference_state not in {
@@ -1237,6 +1387,9 @@ class QMapNavNode(Node):
         )
         self._save_projection_debug(result, lifting)
         self._advance_object_reference_episode()
+        self._advance_numerical_episode(
+            self._projection_viewpoint_id(result)
+        )
 
     def _update_persistent_maps(
         self,
@@ -2165,6 +2318,7 @@ class QMapNavNode(Node):
     def _expire_episode_if_needed(self) -> bool:
         if self._elapsed() < self._episode_time_limit:
             return False
+        self._force_numerical_commit('episode_watchdog_expired')
         hold_goal = self._waypoint_executor.expire(now=self._now())
         if hold_goal is not None:
             self._publish_waypoint(hold_goal)
@@ -2202,6 +2356,18 @@ class QMapNavNode(Node):
         self.declare_parameter('recovery_offset_distance', 0.75)
         self.declare_parameter('recovery_clearance', 0.35)
         self.declare_parameter('episode_time_limit', 600.0)
+        self.declare_parameter(
+            'detector_checkpoint',
+            '/home/docker/models/yoloe-11s-seg.pt',
+        )
+        self.declare_parameter('detector_confidence_threshold', 0.20)
+        self.declare_parameter('detector_cross_crop_iou_threshold', 0.40)
+        self.declare_parameter('numerical_required_consecutive_updates', 3)
+        self.declare_parameter('numerical_required_independent_viewpoints', 2)
+        self.declare_parameter('numerical_minimum_count_confidence', 0.50)
+        self.declare_parameter('numerical_maximum_unresolved_candidates', 0)
+        self.declare_parameter('numerical_final_commit_reserve_sec', 30.0)
+        self.declare_parameter('numerical_maximum_verification_sec', 180.0)
         self.declare_parameter('publish_object_matching_waypoint', True)
         self.declare_parameter('object_reference_initial_observations', 3)
         self.declare_parameter(
@@ -2524,8 +2690,19 @@ def _atomic_write_json(path: Path, payload: object) -> None:
 def main(args: list[str] | None = None) -> None:
     """Run the Q-MapNav ROS node until shutdown."""
     rclpy.init(args=args)
-    node = QMapNavNode(
-        perception_worker=make_day4_baseline_worker(1920, 640),
+    node = QMapNavNode()
+    node.configure_perception_worker(
+        make_day4_baseline_worker(
+            int(node.get_parameter('panorama_width').value),
+            int(node.get_parameter('panorama_height').value),
+            checkpoint=str(node.get_parameter('detector_checkpoint').value),
+            confidence_threshold=float(node.get_parameter(
+                'detector_confidence_threshold'
+            ).value),
+            cross_crop_iou_threshold=float(node.get_parameter(
+                'detector_cross_crop_iou_threshold'
+            ).value),
+        )
     )
 
     try:
@@ -2533,9 +2710,17 @@ def main(args: list[str] | None = None) -> None:
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except KeyboardInterrupt:
+            # ros2 launch may forward SIGINT while rclpy is already cleaning
+            # up. Process exit remains safe and should not emit a traceback.
+            pass
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == '__main__':
