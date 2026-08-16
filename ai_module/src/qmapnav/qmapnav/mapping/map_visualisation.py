@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from qmapnav.mapping.geometry_evaluation import upright_box_corners_xy
+from qmapnav.mapping.box_overlap import upright_box_corners_xy
 from qmapnav.mapping.object_map import PersistentObjectRecord
 from qmapnav.mapping.structural_map import StructuralAnchor
 

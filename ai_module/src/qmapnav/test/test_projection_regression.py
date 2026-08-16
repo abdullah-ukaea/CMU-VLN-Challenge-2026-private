@@ -6,9 +6,9 @@ import pytest
 from qmapnav.mapping import AssociationConfig
 from qmapnav.mapping import AssociationFailure
 from qmapnav.mapping import DAY5_REGRESSION_CATEGORIES
-from qmapnav.mapping import Day5ProjectionPipeline
 from qmapnav.mapping import DenseRegisteredScanAccumulator
 from qmapnav.mapping import DenseScanAccumulatorConfig
+from qmapnav.mapping import ProjectionPipeline
 from qmapnav.mapping import ProjectionSynchronizer
 from qmapnav.mapping import TimedPanorama
 from qmapnav.mapping import TimedPose
@@ -31,7 +31,7 @@ def _frame():
         np.array([0.0, 0.0, 0.1]),
     )
     model = PanoramaCameraModel(width=360, height=120)
-    pipeline = Day5ProjectionPipeline(
+    pipeline = ProjectionPipeline(
         synchronizer=ProjectionSynchronizer(
             AssociationConfig(max_pose_delta_ns=100, max_scan_delta_ns=100)
         ),

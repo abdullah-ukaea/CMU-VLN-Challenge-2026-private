@@ -34,7 +34,7 @@ class LiftingFrame:
         )
 
 
-class Day6LiftingPipeline:
+class LiftingPipeline:
     """Lift all detections without persistence, fusion, or final selection."""
 
     def __init__(
@@ -174,4 +174,4 @@ def combine_projection_results(
     )
 
 
-__all__ = ['combine_projection_results', 'Day6LiftingPipeline', 'LiftingFrame']
+__all__ = ['combine_projection_results', 'LiftingPipeline', 'LiftingFrame']

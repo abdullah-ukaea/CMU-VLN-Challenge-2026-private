@@ -31,9 +31,9 @@ from qmapnav.mapping import ObjectMap
 from qmapnav.mapping import StructuralMap
 from qmapnav.mapping.occupancy_grid import CELL_FREE
 from qmapnav.mapping.perceived_geometry import perceived_box
-from qmapnav.mission import TwoStageRouteEpisodeCoordinator
-from qmapnav.mission import TwoStageRouteEpisodeState
-from qmapnav.mission.two_stage_route_episode import StageResolution
+from qmapnav.mission import InstructionEpisodeCoordinator
+from qmapnav.mission import InstructionEpisodeState
+from qmapnav.mission.instruction_episode import StageResolution
 from qmapnav.navigation import plan_two_stage_route
 from qmapnav.navigation import SemanticStageExecutor
 from qmapnav.navigation import SemanticStageState
@@ -379,7 +379,7 @@ def test_scenario_b_end_to_end_through_the_coordinator() -> None:
             'resolved',
         )
 
-    coordinator = TwoStageRouteEpisodeCoordinator(resolver=resolver)
+    coordinator = InstructionEpisodeCoordinator(resolver=resolver)
     coordinator.start(task)
     action = coordinator.evaluate(
         ObjectMap(), StructuralMap(),
@@ -388,7 +388,7 @@ def test_scenario_b_end_to_end_through_the_coordinator() -> None:
         time_remaining_sec=500.0,
     )
     assert action.action == 'route'
-    assert coordinator.state is TwoStageRouteEpisodeState.ROUTE_COMMITTED
+    assert coordinator.state is InstructionEpisodeState.ROUTE_COMMITTED
     # Instruction episodes spend no exploration budget when both stages
     # already resolve.
     assert coordinator.budget.viewpoints_used == 0

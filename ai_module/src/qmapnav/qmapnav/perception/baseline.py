@@ -1,4 +1,4 @@
-"""Frozen measured Day 4 detector baseline configuration."""
+"""Measured production detector baseline configuration."""
 
 from pathlib import Path
 
@@ -9,18 +9,18 @@ from qmapnav.perception.perception_worker import PerceptionWorker
 from qmapnav.perception.yoloe_detector import YOLOEDetector
 
 
-DAY4_BASELINE_CHECKPOINT = Path('/home/docker/models/yoloe-11s-seg.pt')
-DAY4_BASELINE_CONFIDENCE = 0.20
-DAY4_BASELINE_CROSS_CROP_IOU = 0.40
+DEFAULT_DETECTOR_CHECKPOINT = Path('/home/docker/models/yoloe-11s-seg.pt')
+DEFAULT_DETECTOR_CONFIDENCE = 0.20
+DEFAULT_CROSS_CROP_IOU = 0.40
 
 
-def make_day4_baseline_worker(
+def make_default_perception_worker(
     panorama_width: int,
     panorama_height: int,
     *,
-    checkpoint: str | Path = DAY4_BASELINE_CHECKPOINT,
-    confidence_threshold: float = DAY4_BASELINE_CONFIDENCE,
-    cross_crop_iou_threshold: float = DAY4_BASELINE_CROSS_CROP_IOU,
+    checkpoint: str | Path = DEFAULT_DETECTOR_CHECKPOINT,
+    confidence_threshold: float = DEFAULT_DETECTOR_CONFIDENCE,
+    cross_crop_iou_threshold: float = DEFAULT_CROSS_CROP_IOU,
 ) -> PerceptionWorker:
     """Construct the selected eight-crop compact-YOLOE worker."""
     camera_model = PanoramaCameraModel(panorama_width, panorama_height)

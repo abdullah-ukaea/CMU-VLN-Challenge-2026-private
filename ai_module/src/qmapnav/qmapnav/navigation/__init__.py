@@ -10,6 +10,12 @@ from qmapnav.navigation.executor import ExecutorEventType
 from qmapnav.navigation.executor import SequentialWaypointExecutor
 from qmapnav.navigation.executor import Waypoint2D
 from qmapnav.navigation.executor import WaypointExecutorState
+from qmapnav.navigation.instruction_route import PerceivedRoutePlan
+from qmapnav.navigation.instruction_route import PerceivedRouteStage
+from qmapnav.navigation.instruction_route import plan_two_stage_route
+from qmapnav.navigation.instruction_route import stage_waypoints
+from qmapnav.navigation.instruction_route import two_stage_steps
+from qmapnav.navigation.instruction_route import TwoStageRouteError
 from qmapnav.navigation.semantic_regions import GoalPoseCandidate
 from qmapnav.navigation.semantic_regions import GoalPoseScoringConfig
 from qmapnav.navigation.semantic_regions import NearRegionConfig
@@ -26,12 +32,6 @@ from qmapnav.navigation.targeted_viewpoint import generate_targeted_viewpoints
 from qmapnav.navigation.targeted_viewpoint import OneViewpointGuard
 from qmapnav.navigation.targeted_viewpoint import TargetedViewpointCandidate
 from qmapnav.navigation.targeted_viewpoint import TargetedViewpointConfig
-from qmapnav.navigation.two_stage_route import PerceivedRoutePlan
-from qmapnav.navigation.two_stage_route import PerceivedRouteStage
-from qmapnav.navigation.two_stage_route import plan_two_stage_route
-from qmapnav.navigation.two_stage_route import stage_waypoints
-from qmapnav.navigation.two_stage_route import two_stage_steps
-from qmapnav.navigation.two_stage_route import TwoStageRouteError
 
 
 __all__ = [

@@ -12,9 +12,9 @@ from enum import Enum
 
 from qmapnav.navigation.executor import SequentialWaypointExecutor
 from qmapnav.navigation.executor import Waypoint2D
+from qmapnav.navigation.instruction_route import PerceivedRoutePlan
+from qmapnav.navigation.instruction_route import PerceivedRouteStage
 from qmapnav.navigation.semantic_regions import semantic_region_satisfied
-from qmapnav.navigation.two_stage_route import PerceivedRoutePlan
-from qmapnav.navigation.two_stage_route import PerceivedRouteStage
 
 
 class SemanticStageState(str, Enum):

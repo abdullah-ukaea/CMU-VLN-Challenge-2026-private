@@ -5,6 +5,9 @@ from qmapnav.mapping.bounding_boxes import BoxEstimationConfig
 from qmapnav.mapping.bounding_boxes import canonicalize_box
 from qmapnav.mapping.bounding_boxes import estimate_upright_obb
 from qmapnav.mapping.bounding_boxes import UprightOrientedBox
+from qmapnav.mapping.box_overlap import GeometryEvaluation
+from qmapnav.mapping.box_overlap import ReferenceUprightBox
+from qmapnav.mapping.box_overlap import upright_box_iou_3d
 from qmapnav.mapping.cluster_selection import ClusterSelectionConfig
 from qmapnav.mapping.cluster_selection import ClusterSelectionResult
 from qmapnav.mapping.dense_scan_accumulator import DenseAccumulationResult
@@ -14,17 +17,14 @@ from qmapnav.mapping.dense_scan_accumulator import DenseRegisteredScanAccumulato
 from qmapnav.mapping.dense_scan_accumulator import DenseScanAccumulatorConfig
 from qmapnav.mapping.dense_scan_accumulator import DenseScanSnapshot
 from qmapnav.mapping.depth_filter import DepthFilterConfig
-from qmapnav.mapping.geometry_evaluation import GeometryEvaluation
-from qmapnav.mapping.geometry_evaluation import ReferenceUprightBox
-from qmapnav.mapping.geometry_evaluation import upright_box_iou_3d
 from qmapnav.mapping.ground_filter import GroundPlane
 from qmapnav.mapping.lidar_camera_projection import CropProjection
 from qmapnav.mapping.lidar_camera_projection import ProjectionConfig
 from qmapnav.mapping.lidar_camera_projection import ProjectionDiagnostics
 from qmapnav.mapping.lidar_camera_projection import ProjectionResult
 from qmapnav.mapping.lifting_pipeline import combine_projection_results
-from qmapnav.mapping.lifting_pipeline import Day6LiftingPipeline
 from qmapnav.mapping.lifting_pipeline import LiftingFrame
+from qmapnav.mapping.lifting_pipeline import LiftingPipeline
 from qmapnav.mapping.lifting_regression import DAY6_REGRESSION_CATEGORIES
 from qmapnav.mapping.lifting_regression import LiftingRegressionMetrics
 from qmapnav.mapping.lifting_regression import replay_lifting_regression_case
@@ -50,8 +50,8 @@ from qmapnav.mapping.object_map import PersistentObjectRecord
 from qmapnav.mapping.orientation_confidence import OrientationConfidenceConfig
 from qmapnav.mapping.point_selection import PointSelectionConfig
 from qmapnav.mapping.point_selection import PointSelectionResult
-from qmapnav.mapping.projection_pipeline import Day5ProjectionPipeline
 from qmapnav.mapping.projection_pipeline import ProjectionFrame
+from qmapnav.mapping.projection_pipeline import ProjectionPipeline
 from qmapnav.mapping.projection_quality import DetectionProjection
 from qmapnav.mapping.projection_quality import ProjectionQualityConfig
 from qmapnav.mapping.projection_regression import DAY5_REGRESSION_CATEGORIES
@@ -113,8 +113,8 @@ __all__ = [
     'DenseRegisteredScanAccumulator',
     'DenseScanAccumulatorConfig',
     'DenseScanSnapshot',
-    'Day5ProjectionPipeline',
-    'Day6LiftingPipeline',
+    'ProjectionPipeline',
+    'LiftingPipeline',
     'DAY5_REGRESSION_CATEGORIES',
     'DAY6_REGRESSION_CATEGORIES',
     'DetectionProjection',

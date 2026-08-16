@@ -1,9 +1,9 @@
 """Query-conditioned image perception and observation processing."""
 
-from qmapnav.perception.baseline import DAY4_BASELINE_CHECKPOINT
-from qmapnav.perception.baseline import DAY4_BASELINE_CONFIDENCE
-from qmapnav.perception.baseline import DAY4_BASELINE_CROSS_CROP_IOU
-from qmapnav.perception.baseline import make_day4_baseline_worker
+from qmapnav.perception.baseline import DEFAULT_CROSS_CROP_IOU
+from qmapnav.perception.baseline import DEFAULT_DETECTOR_CHECKPOINT
+from qmapnav.perception.baseline import DEFAULT_DETECTOR_CONFIDENCE
+from qmapnav.perception.baseline import make_default_perception_worker
 from qmapnav.perception.contracts import CropDetection
 from qmapnav.perception.contracts import Detection2D
 from qmapnav.perception.contracts import DetectorClass
@@ -40,9 +40,9 @@ from qmapnav.perception.yoloe_detector import YOLOEDetector
 
 __all__ = [
     'CropDetection',
-    'DAY4_BASELINE_CHECKPOINT',
-    'DAY4_BASELINE_CONFIDENCE',
-    'DAY4_BASELINE_CROSS_CROP_IOU',
+    'DEFAULT_DETECTOR_CHECKPOINT',
+    'DEFAULT_DETECTOR_CONFIDENCE',
+    'DEFAULT_CROSS_CROP_IOU',
     'Detection2D',
     'DetectorClass',
     'DetectorDependencyError',
@@ -67,7 +67,7 @@ __all__ = [
     'draw_crop_layout',
     'eight_view_layout',
     'make_perspective_geometry',
-    'make_day4_baseline_worker',
+    'make_default_perception_worker',
     'panorama_pixels_to_camera_rays',
     'panorama_pixels_to_crop_pixels',
     'panorama_box_iou',

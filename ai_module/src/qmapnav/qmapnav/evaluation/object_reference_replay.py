@@ -27,10 +27,10 @@ from qmapnav.evaluation.object_reference_runner import (
 )
 from qmapnav.evaluation.oracle import solve_object_reference
 from qmapnav.language import parse_question
-from qmapnav.mapping.geometry_evaluation import aabb_iou_3d
-from qmapnav.mapping.geometry_evaluation import ReferenceUprightBox
-from qmapnav.mapping.geometry_evaluation import upright_box_aabb
-from qmapnav.mapping.geometry_evaluation import upright_box_iou_3d
+from qmapnav.mapping.box_overlap import aabb_iou_3d
+from qmapnav.mapping.box_overlap import ReferenceUprightBox
+from qmapnav.mapping.box_overlap import upright_box_aabb
+from qmapnav.mapping.box_overlap import upright_box_iou_3d
 from qmapnav.mapping.object_association import canonicalize_class_name
 from qmapnav.mapping.object_candidate import ConfidenceComponents
 from qmapnav.mapping.object_candidate import GeometrySource

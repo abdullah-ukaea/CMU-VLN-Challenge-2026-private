@@ -24,11 +24,11 @@ from qmapnav.mapping import AccumulationStatus
 from qmapnav.mapping import AssociationConfig
 from qmapnav.mapping import AssociationFailure
 from qmapnav.mapping import BoundedProjectionWorker
-from qmapnav.mapping import Day5ProjectionPipeline
 from qmapnav.mapping import DenseRegisteredScanAccumulator
 from qmapnav.mapping import DenseScanAccumulatorConfig
 from qmapnav.mapping import ProjectionConfig
 from qmapnav.mapping import ProjectionFrame
+from qmapnav.mapping import ProjectionPipeline
 from qmapnav.mapping import ProjectionQualityConfig
 from qmapnav.mapping import ProjectionSynchronizer
 from qmapnav.mapping import RegisteredScanAccumulator
@@ -39,8 +39,8 @@ from qmapnav.mapping import TimedRegisteredScan
 from qmapnav.mapping.bounding_boxes import BoxEstimationConfig
 from qmapnav.mapping.cluster_selection import ClusterSelectionConfig
 from qmapnav.mapping.depth_filter import DepthFilterConfig
-from qmapnav.mapping.lifting_pipeline import Day6LiftingPipeline
 from qmapnav.mapping.lifting_pipeline import LiftingFrame
+from qmapnav.mapping.lifting_pipeline import LiftingPipeline
 from qmapnav.mapping.lifting_visualisation import draw_candidate_orthographic
 from qmapnav.mapping.lifting_visualisation import draw_depth_histogram
 from qmapnav.mapping.lifting_visualisation import draw_lifting_stage_overlay
@@ -76,6 +76,7 @@ from qmapnav.mission.episode_reports import classify_primary_failure
 from qmapnav.mission.episode_reports import ObjectReferenceEpisodeResult
 from qmapnav.mission.episode_reports import StageEvidence
 from qmapnav.mission.episode_reports import task_specification_data
+from qmapnav.mission.instruction_episode import InstructionEpisodeCoordinator
 from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import CANDIDATE_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import FinalMarkerGuard
@@ -94,9 +95,6 @@ from qmapnav.mission.numerical_output_adapter import NumericalOutputAdapter
 from qmapnav.mission.numerical_output_adapter import OFFICIAL_NUMERICAL_TOPIC
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
-from qmapnav.mission.two_stage_route_episode import (
-    TwoStageRouteEpisodeCoordinator,
-)
 from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
 from qmapnav.navigation import DEFAULT_DIRECT_REPUBLISH_LIMIT
 from qmapnav.navigation import DEFAULT_NO_PROGRESS_TIMEOUT
@@ -115,7 +113,7 @@ from qmapnav.navigation import TargetedViewpointConfig
 from qmapnav.navigation import TwoStageRouteError
 from qmapnav.navigation import Waypoint2D
 from qmapnav.navigation import WaypointExecutorState
-from qmapnav.perception.baseline import make_day4_baseline_worker
+from qmapnav.perception.baseline import make_default_perception_worker
 from qmapnav.perception.contracts import Detection2D
 from qmapnav.perception.contracts import PerceptionRequest
 from qmapnav.perception.panorama_projection import PanoramaCameraModel
@@ -159,8 +157,8 @@ class QMapNavNode(Node):
         question_parser: Callable[[str], TaskSpecification] = parse_question,
         *,
         scan_accumulator: RegisteredScanAccumulator | None = None,
-        projection_pipeline: Day5ProjectionPipeline | None = None,
-        lifting_pipeline: Day6LiftingPipeline | None = None,
+        projection_pipeline: ProjectionPipeline | None = None,
+        lifting_pipeline: LiftingPipeline | None = None,
         object_map: ObjectMap | None = None,
         structural_map: StructuralMap | None = None,
         perception_worker: object | None = None,
@@ -215,7 +213,7 @@ class QMapNavNode(Node):
         self._object_reference_started_at: float | None = None
         self._object_reference_fusion_events: deque[dict] = deque(maxlen=512)
         self._numerical_episode: NumericalEpisodeCoordinator | None = None
-        self._instruction_episode: TwoStageRouteEpisodeCoordinator | None = None
+        self._instruction_episode: InstructionEpisodeCoordinator | None = None
         self._instruction_stage_executor: SemanticStageExecutor | None = None
         self._instruction_plan = None
         self._instruction_grid = None
@@ -247,7 +245,7 @@ class QMapNavNode(Node):
             self._reasoning_spatial_config,
             self._reasoning_ambiguity_config,
             self._reasoning_corridor_config,
-        ) = self._create_day9_reasoning_configs()
+        ) = self._create_reasoning_configs()
         self._trace_recorder = trace_recorder or self._create_trace_recorder()
         self._waypoint_executor = SequentialWaypointExecutor(
             arrival_radius=float(self.get_parameter('arrival_radius').value),
@@ -348,7 +346,7 @@ class QMapNavNode(Node):
         )
         self._trace(
             event='node_initialized',
-            selection_reason='day_8_colour_relation_runtime_ready',
+            selection_reason='colour_relation_runtime_ready',
             details={
                 'executor': {
                     'arrival_radius': self._waypoint_executor.arrival_radius,
@@ -1377,7 +1375,7 @@ class QMapNavNode(Node):
                     selection_reason='numerical_task_latched',
                 )
             if self._task_specification.task_type == 'instruction_following':
-                self._instruction_episode = TwoStageRouteEpisodeCoordinator(
+                self._instruction_episode = InstructionEpisodeCoordinator(
                     candidate_config=self._reasoning_candidate_config,
                     spatial_config=self._reasoning_spatial_config,
                     vertical_config=self._relation_graph.vertical_config,
@@ -1394,7 +1392,7 @@ class QMapNavNode(Node):
                     self._trace(
                         event='instruction_episode_unsupported',
                         selected_action='retain_terminal_target_for_fallback',
-                        selection_reason='outside_day11_two_stage_slice',
+                        selection_reason='unsupported_instruction_form',
                         details={'error': str(error)},
                     )
                 else:
@@ -2301,7 +2299,7 @@ class QMapNavNode(Node):
             )
         )
 
-    def _create_projection_pipeline(self) -> Day5ProjectionPipeline:
+    def _create_projection_pipeline(self) -> ProjectionPipeline:
         translation = np.asarray(
             self.get_parameter('camera_translation_sensor_xyz').value,
             dtype=np.float64,
@@ -2374,7 +2372,7 @@ class QMapNavNode(Node):
             ),
             timing_warning_ms=projection_config.timing_warning_ms,
         )
-        return Day5ProjectionPipeline(
+        return ProjectionPipeline(
             synchronizer=ProjectionSynchronizer(association),
             dense_accumulator=DenseRegisteredScanAccumulator(dense_config),
             transform_sensor_from_camera_optical=transform_sensor_from_camera,
@@ -2386,7 +2384,7 @@ class QMapNavNode(Node):
             quality_config=quality_config,
         )
 
-    def _create_lifting_pipeline(self) -> Day6LiftingPipeline:
+    def _create_lifting_pipeline(self) -> LiftingPipeline:
         source_text = str(self.get_parameter('lifting_source').value)
         try:
             source = GeometrySource(source_text)
@@ -2448,7 +2446,7 @@ class QMapNavNode(Node):
                 self.get_parameter('lifting_sparse_point_threshold').value
             ),
         )
-        return Day6LiftingPipeline(
+        return LiftingPipeline(
             ObjectLifter(config),
             source=source,
             use_masks=bool(self.get_parameter('lifting_use_masks').value),
@@ -2590,7 +2588,7 @@ class QMapNavNode(Node):
             ),
         )
 
-    def _create_day9_reasoning_configs(self):
+    def _create_reasoning_configs(self):
         """Load all Day 9 thresholds, including the system robot width."""
         candidate = CandidateGenerationConfig(
             minimum_class_probability=float(self.get_parameter(
@@ -3081,7 +3079,7 @@ def main(args: list[str] | None = None) -> None:
     rclpy.init(args=args)
     node = QMapNavNode()
     node.configure_perception_worker(
-        make_day4_baseline_worker(
+        make_default_perception_worker(
             int(node.get_parameter('panorama_width').value),
             int(node.get_parameter('panorama_height').value),
             checkpoint=str(node.get_parameter('detector_checkpoint').value),

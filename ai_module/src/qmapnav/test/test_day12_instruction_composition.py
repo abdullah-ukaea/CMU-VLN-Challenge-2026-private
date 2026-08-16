@@ -12,7 +12,7 @@ from qmapnav.common.decision_trace import InMemoryTraceRecorder
 from qmapnav.language import parse_question
 from qmapnav.mapping import ObjectMap
 from qmapnav.mapping import StructuralMap
-from qmapnav.mission import TwoStageRouteEpisodeCoordinator
+from qmapnav.mission import InstructionEpisodeCoordinator
 from qmapnav.navigation import SemanticStageState
 from rclpy.parameter import Parameter
 
@@ -92,7 +92,7 @@ def _relation_scene(object_map: ObjectMap) -> dict[str, int]:
 
 
 def _coordinator_action(object_map: ObjectMap):
-    coordinator = TwoStageRouteEpisodeCoordinator()
+    coordinator = InstructionEpisodeCoordinator()
     coordinator.start(parse_question(ROUTE_QUESTION))
     action = coordinator.evaluate(
         object_map,

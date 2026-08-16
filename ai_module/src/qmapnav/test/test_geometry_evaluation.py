@@ -2,9 +2,9 @@
 
 import numpy as np
 
-from qmapnav.mapping.geometry_evaluation import aabb_iou_3d
-from qmapnav.mapping.geometry_evaluation import point_count_bin
-from qmapnav.mapping.geometry_evaluation import upright_box_iou_3d
+from qmapnav.mapping.box_overlap import aabb_iou_3d
+from qmapnav.mapping.box_overlap import point_count_bin
+from qmapnav.mapping.box_overlap import upright_box_iou_3d
 
 
 def test_aabb_iou_identical_disjoint_contained_and_offset_height() -> None:

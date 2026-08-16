@@ -12,7 +12,7 @@ import numpy as np
 
 from qmapnav.common import ObjectInstance
 from qmapnav.mapping.bounding_boxes import rectangle_yaw_difference
-from qmapnav.mapping.geometry_evaluation import aabb_iou_3d
+from qmapnav.mapping.box_overlap import aabb_iou_3d
 from qmapnav.mapping.object_candidate import ObjectCandidate3D
 
 

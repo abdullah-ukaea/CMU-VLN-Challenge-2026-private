@@ -1,5 +1,5 @@
 """
-Bounded Day 11 two-stage instruction episode coordinator.
+Bounded two-stage instruction episode coordinator.
 
 Mirrors the shape of
 :class:`~qmapnav.mission.object_reference_episode.ObjectReferenceEpisodeCoordinator`:
@@ -48,10 +48,10 @@ from qmapnav.mapping.object_map import ObjectMap
 from qmapnav.mapping.occupancy_grid import OccupancyGrid2D
 from qmapnav.mapping.perceived_geometry import perceived_box
 from qmapnav.mapping.structural_map import StructuralMap
+from qmapnav.navigation.instruction_route import PerceivedRoutePlan
+from qmapnav.navigation.instruction_route import plan_two_stage_route
+from qmapnav.navigation.instruction_route import two_stage_steps
 from qmapnav.navigation.semantic_regions import NearRegionConfig
-from qmapnav.navigation.two_stage_route import PerceivedRoutePlan
-from qmapnav.navigation.two_stage_route import plan_two_stage_route
-from qmapnav.navigation.two_stage_route import two_stage_steps
 from qmapnav.reasoning.ambiguity import AmbiguityConfig
 from qmapnav.reasoning.candidate_generation import CandidateGenerationConfig
 from qmapnav.reasoning.candidate_generation import (
@@ -66,7 +66,7 @@ from qmapnav.reasoning.support_relations import SupportRelationConfig
 from qmapnav.reasoning.vertical_relations import VerticalRelationConfig
 
 
-class TwoStageRouteEpisodeState(str, Enum):
+class InstructionEpisodeState(str, Enum):
     """Bounded states for one perceived two-stage instruction."""
 
     IDLE = 'idle'
@@ -213,7 +213,7 @@ def resolve_stage_reference(
     )
 
 
-class TwoStageRouteEpisodeCoordinator:
+class InstructionEpisodeCoordinator:
     """Resolve both stages, explore once if needed, then commit a route."""
 
     def __init__(
@@ -245,7 +245,7 @@ class TwoStageRouteEpisodeCoordinator:
         self._support_config = support_config
         self._ambiguity_config = ambiguity_config
         self._resolver = resolver
-        self._state = TwoStageRouteEpisodeState.IDLE
+        self._state = InstructionEpisodeState.IDLE
         self._task: TaskSpecification | None = None
         self._steps: tuple[tuple[int, str, str], ...] = ()
         self._visited: tuple[VisitedViewpoint, ...] = ()
@@ -254,7 +254,7 @@ class TwoStageRouteEpisodeCoordinator:
         self._stage_a_information_used = False
 
     @property
-    def state(self) -> TwoStageRouteEpisodeState:
+    def state(self) -> InstructionEpisodeState:
         """Return the current bounded episode state."""
         return self._state
 
@@ -275,13 +275,13 @@ class TwoStageRouteEpisodeCoordinator:
 
     def start(self, task: TaskSpecification) -> None:
         """Start one instruction episode from a latched parse."""
-        if self._state is not TwoStageRouteEpisodeState.IDLE:
+        if self._state is not InstructionEpisodeState.IDLE:
             raise RuntimeError('two-stage episode already started')
         if not isinstance(task, TaskSpecification):
             raise TypeError('task must be TaskSpecification')
         self._steps = two_stage_steps(task)
         self._task = task
-        self._state = TwoStageRouteEpisodeState.INITIAL_OBSERVATION
+        self._state = InstructionEpisodeState.INITIAL_OBSERVATION
 
     def evaluate(
         self,
@@ -300,8 +300,8 @@ class TwoStageRouteEpisodeCoordinator:
         route it can build so the terminal target is always attempted.
         """
         if self._state not in {
-            TwoStageRouteEpisodeState.INITIAL_OBSERVATION,
-            TwoStageRouteEpisodeState.REOBSERVATION,
+            InstructionEpisodeState.INITIAL_OBSERVATION,
+            InstructionEpisodeState.REOBSERVATION,
         }:
             raise RuntimeError('coordinator is not awaiting evidence')
         if self._task is None:
@@ -377,7 +377,7 @@ class TwoStageRouteEpisodeCoordinator:
         focus_key: str = '',
     ) -> None:
         """Consume budget and open one bounded re-observation window."""
-        if self._state is not TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE:
+        if self._state is not InstructionEpisodeState.VIEWPOINT_ACTIVE:
             raise RuntimeError('no exploration viewpoint is active')
         self._budget.consume(
             distance_m=distance_m, duration_sec=duration_sec
@@ -385,7 +385,7 @@ class TwoStageRouteEpisodeCoordinator:
         self._visited = self._visited + (
             VisitedViewpoint(tuple(pose_xy_yaw), focus_key=focus_key),
         )
-        self._state = TwoStageRouteEpisodeState.REOBSERVATION
+        self._state = InstructionEpisodeState.REOBSERVATION
 
     def notify_viewpoint_failed(
         self,
@@ -394,12 +394,12 @@ class TwoStageRouteEpisodeCoordinator:
         duration_sec: float,
     ) -> None:
         """Consume a failed viewpoint attempt and open bounded fallback."""
-        if self._state is not TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE:
+        if self._state is not InstructionEpisodeState.VIEWPOINT_ACTIVE:
             raise RuntimeError('no exploration viewpoint is active')
         self._budget.consume(
             distance_m=distance_m, duration_sec=duration_sec
         )
-        self._state = TwoStageRouteEpisodeState.REOBSERVATION
+        self._state = InstructionEpisodeState.REOBSERVATION
 
     def notify_stage_a_information_arrived(
         self,
@@ -407,7 +407,7 @@ class TwoStageRouteEpisodeCoordinator:
         pose_xy_yaw: tuple[float, float, float],
     ) -> None:
         """Open one re-observation window after the partial stage-A route."""
-        if self._state is not TwoStageRouteEpisodeState.ROUTE_COMMITTED:
+        if self._state is not InstructionEpisodeState.ROUTE_COMMITTED:
             raise RuntimeError('no stage-A information route is active')
         if (
             self._last_action is None
@@ -419,7 +419,7 @@ class TwoStageRouteEpisodeCoordinator:
             VisitedViewpoint(tuple(pose_xy_yaw), focus_key='stage_a'),
         )
         self._stage_a_information_used = True
-        self._state = TwoStageRouteEpisodeState.REOBSERVATION
+        self._state = InstructionEpisodeState.REOBSERVATION
 
     def _explore_or_fallback(
         self,
@@ -457,7 +457,7 @@ class TwoStageRouteEpisodeCoordinator:
                 scored, need, config=self._scoring_config
             )
             if selection.selection_status == 'selected':
-                self._state = TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE
+                self._state = InstructionEpisodeState.VIEWPOINT_ACTIVE
                 action = TwoStageRouteAction(
                     'explore', need.reason, resolutions,
                     selection=selection, need=need,
@@ -522,7 +522,7 @@ class TwoStageRouteEpisodeCoordinator:
                 scored, need, config=self._scoring_config
             )
             if selection.selection_status == 'selected':
-                self._state = TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE
+                self._state = InstructionEpisodeState.VIEWPOINT_ACTIVE
                 action = TwoStageRouteAction(
                     'explore',
                     f'{reason}:stage_a_observation_route',
@@ -532,7 +532,7 @@ class TwoStageRouteEpisodeCoordinator:
                 )
                 self._last_action = action
                 return action
-        self._state = TwoStageRouteEpisodeState.ROUTE_COMMITTED
+        self._state = InstructionEpisodeState.ROUTE_COMMITTED
         action = TwoStageRouteAction(
             'abort', f'{reason}:{plan.route_status}', resolutions, need=need
         )
@@ -679,7 +679,7 @@ class TwoStageRouteEpisodeCoordinator:
         )
 
     def _commit(self, action, reason, resolutions, plan):
-        self._state = TwoStageRouteEpisodeState.ROUTE_COMMITTED
+        self._state = InstructionEpisodeState.ROUTE_COMMITTED
         decision = TwoStageRouteAction(
             action, reason, resolutions, plan=plan
         )
@@ -756,7 +756,7 @@ def _first_support_xy(candidate, object_map):
 __all__ = [
     'StageResolution',
     'TwoStageRouteAction',
-    'TwoStageRouteEpisodeCoordinator',
-    'TwoStageRouteEpisodeState',
+    'InstructionEpisodeCoordinator',
+    'InstructionEpisodeState',
     'resolve_stage_reference',
 ]

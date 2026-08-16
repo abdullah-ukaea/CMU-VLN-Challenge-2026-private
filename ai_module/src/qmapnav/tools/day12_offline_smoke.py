@@ -29,13 +29,13 @@ def main() -> None:
     from qmapnav.mission.numerical_episode import NumericalEpisodeCoordinator
     from qmapnav.mission.numerical_output_adapter import NumericalOutputAdapter
     from qmapnav.perception import detector_classes_from_task_specification
-    from qmapnav.perception import make_day4_baseline_worker
+    from qmapnav.perception import make_default_perception_worker
     from qmapnav.perception import PerceptionRequest
 
     question = 'How many cups are on the coffee table?'
     task = parse_question(question)
     parsed_at = perf_counter()
-    worker = make_day4_baseline_worker(
+    worker = make_default_perception_worker(
         1920,
         640,
         checkpoint=arguments.checkpoint,

@@ -38,7 +38,7 @@ class ProjectionFrame:
     accumulated_detection_support: tuple[DetectionProjection, ...]
 
 
-class Day5ProjectionPipeline:
+class ProjectionPipeline:
     """Compose pure synchronization, projection, and dense map snapshots."""
 
     def __init__(
@@ -148,4 +148,4 @@ class Day5ProjectionPipeline:
         )[:3, 3]
 
 
-__all__ = ['Day5ProjectionPipeline', 'ProjectionFrame']
+__all__ = ['ProjectionPipeline', 'ProjectionFrame']

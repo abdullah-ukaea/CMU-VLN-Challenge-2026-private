@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from qmapnav.mapping.geometry_evaluation import upright_box_corners_xy
+from qmapnav.mapping.box_overlap import upright_box_corners_xy
 from qmapnav.mapping.lidar_camera_projection import ProjectionResult
 from qmapnav.mapping.object_candidate import LiftingResult
 from qmapnav.perception.contracts import Detection2D

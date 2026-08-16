@@ -9,9 +9,9 @@ from qmapnav.exploration import ExplorationBudget
 from qmapnav.language import parse_question
 from qmapnav.mapping import ObjectMap
 from qmapnav.mapping import StructuralMap
-from qmapnav.mission import TwoStageRouteEpisodeCoordinator
-from qmapnav.mission import TwoStageRouteEpisodeState
-from qmapnav.mission.two_stage_route_episode import StageResolution
+from qmapnav.mission import InstructionEpisodeCoordinator
+from qmapnav.mission import InstructionEpisodeState
+from qmapnav.mission.instruction_episode import StageResolution
 from qmapnav.navigation import PerceivedRoutePlan
 
 
@@ -48,7 +48,7 @@ def _entities(task):
 def test_both_stages_resolved_commits_a_route_without_exploring() -> None:
     task = _task()
     first, second = _entities(task)
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         resolver=_stub_resolver({
             first: make_instance(67, 'potted_plant', (4.0, 0.0, 0.5)),
             second: make_instance(23, 'water_cooler', (-4.0, 0.0, 0.5)),
@@ -64,7 +64,7 @@ def test_both_stages_resolved_commits_a_route_without_exploring() -> None:
     assert action.action == 'route'
     assert action.plan.planned is True
     assert len(action.plan.stages) == 2
-    assert coordinator.state is TwoStageRouteEpisodeState.ROUTE_COMMITTED
+    assert coordinator.state is InstructionEpisodeState.ROUTE_COMMITTED
     # No motion was spent on evidence the episode did not need.
     assert coordinator.budget.viewpoints_used == 0
 
@@ -73,7 +73,7 @@ def test_unresolved_stage_requests_one_bounded_viewpoint() -> None:
     task = _task()
     first, second = _entities(task)
     object_map = ObjectMap()
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         resolver=_stub_resolver({
             second: make_instance(23, 'water_cooler', (-4.0, 0.0, 0.5)),
         })
@@ -92,7 +92,7 @@ def test_unresolved_stage_requests_one_bounded_viewpoint() -> None:
     # instruction to explore.
     assert 'potted_plant' in action.need.reason
     assert action.need.missing_classes == ('potted_plant',)
-    assert coordinator.state is TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE
+    assert coordinator.state is InstructionEpisodeState.VIEWPOINT_ACTIVE
     # The chosen viewpoint faces the unobserved half of the map.
     selected = action.selection.selected
     assert selected.source == 'frontier'
@@ -108,7 +108,7 @@ def _partly_unknown_grid():
 def test_exhausted_budget_falls_back_to_the_terminal_target() -> None:
     task = _task()
     first, second = _entities(task)
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         budget=ExplorationBudget(
             max_targeted_viewpoints=1,
             max_single_viewpoint_distance_m=2.0,
@@ -138,7 +138,7 @@ def test_exhausted_budget_falls_back_to_the_terminal_target() -> None:
 def test_missing_terminal_routes_to_resolved_stage_a_then_reobserves() -> None:
     task = _task()
     first, _ = _entities(task)
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         resolver=_stub_resolver({
             first: make_instance(67, 'potted_plant', (4.0, 0.0, 0.5)),
         })
@@ -159,7 +159,7 @@ def test_missing_terminal_routes_to_resolved_stage_a_then_reobserves() -> None:
     coordinator.notify_stage_a_information_arrived(
         pose_xy_yaw=(3.0, 0.0, 0.0)
     )
-    assert coordinator.state is TwoStageRouteEpisodeState.REOBSERVATION
+    assert coordinator.state is InstructionEpisodeState.REOBSERVATION
 
     second = coordinator.evaluate(
         ObjectMap(),
@@ -178,13 +178,13 @@ def test_blocked_stage_a_uses_safe_stage_a_observation_viewpoint(
     task = _task()
     first, _ = _entities(task)
     stage_a = make_instance(67, 'potted_plant', (2.0, 0.0, 0.5))
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         resolver=_stub_resolver({first: stage_a})
     )
     coordinator.start(task)
 
     monkeypatch.setattr(
-        'qmapnav.mission.two_stage_route_episode.plan_two_stage_route',
+        'qmapnav.mission.instruction_episode.plan_two_stage_route',
         lambda *args, **kwargs: PerceivedRoutePlan((), 'blocked'),
     )
     action = coordinator.evaluate(
@@ -199,12 +199,12 @@ def test_blocked_stage_a_uses_safe_stage_a_observation_viewpoint(
     assert action.selection.selection_status == 'selected'
     assert action.selection.selected.source == 'object_annulus'
     assert action.selection.selected.target_instance_ids == ('67',)
-    assert coordinator.state is TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE
+    assert coordinator.state is InstructionEpisodeState.VIEWPOINT_ACTIVE
 
 
 def test_no_resolvable_stage_aborts_cleanly_without_deadlock() -> None:
     task = _task()
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         budget=ExplorationBudget(minimum_time_remaining_sec=400.0),
         resolver=_stub_resolver({}),
     )
@@ -217,13 +217,13 @@ def test_no_resolvable_stage_aborts_cleanly_without_deadlock() -> None:
     )
     assert action.action == 'abort'
     assert action.plan is None
-    assert coordinator.state is TwoStageRouteEpisodeState.ROUTE_COMMITTED
+    assert coordinator.state is InstructionEpisodeState.ROUTE_COMMITTED
 
 
 def test_viewpoint_arrival_consumes_budget_and_opens_reobservation() -> None:
     task = _task()
     first, second = _entities(task)
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         resolver=_stub_resolver({
             second: make_instance(23, 'water_cooler', (-4.0, 0.0, 0.5)),
         })
@@ -239,13 +239,13 @@ def test_viewpoint_arrival_consumes_budget_and_opens_reobservation() -> None:
     coordinator.notify_viewpoint_arrived(
         pose_xy_yaw=(1.0, 0.0, 0.0), distance_m=1.5, duration_sec=4.0
     )
-    assert coordinator.state is TwoStageRouteEpisodeState.REOBSERVATION
+    assert coordinator.state is InstructionEpisodeState.REOBSERVATION
     assert coordinator.budget.viewpoints_used == 1
     assert coordinator.budget.distance_travelled_m == pytest.approx(1.5)
 
 
 def test_instruction_budget_is_conservative_by_default() -> None:
-    coordinator = TwoStageRouteEpisodeCoordinator()
+    coordinator = InstructionEpisodeCoordinator()
     budget = coordinator.budget.budget
     reference = ExplorationBudget.for_task_type('object_reference')
     assert (
@@ -255,7 +255,7 @@ def test_instruction_budget_is_conservative_by_default() -> None:
 
 
 def test_non_two_stage_instruction_is_refused_at_start() -> None:
-    coordinator = TwoStageRouteEpisodeCoordinator()
+    coordinator = InstructionEpisodeCoordinator()
     three_stage = parse_question(
         'First, go near the stool, then take the path near the cabinet, '
         'and stop at the bowl on the table.'
@@ -265,7 +265,7 @@ def test_non_two_stage_instruction_is_refused_at_start() -> None:
 
 
 def test_double_start_and_premature_arrival_are_refused() -> None:
-    coordinator = TwoStageRouteEpisodeCoordinator()
+    coordinator = InstructionEpisodeCoordinator()
     task = _task()
     coordinator.start(task)
     with pytest.raises(RuntimeError, match='already started'):
@@ -279,7 +279,7 @@ def test_double_start_and_premature_arrival_are_refused() -> None:
 def test_decision_serializes_for_the_trace() -> None:
     task = _task()
     first, second = _entities(task)
-    coordinator = TwoStageRouteEpisodeCoordinator(
+    coordinator = InstructionEpisodeCoordinator(
         resolver=_stub_resolver({
             first: make_instance(67, 'potted_plant', (4.0, 0.0, 0.5)),
             second: make_instance(23, 'water_cooler', (-4.0, 0.0, 0.5)),
@@ -301,7 +301,7 @@ def test_decision_serializes_for_the_trace() -> None:
 
 
 def test_evaluate_before_start_is_refused() -> None:
-    coordinator = TwoStageRouteEpisodeCoordinator()
+    coordinator = InstructionEpisodeCoordinator()
     with pytest.raises(RuntimeError, match='not awaiting evidence'):
         coordinator.evaluate(
             ObjectMap(), StructuralMap(),

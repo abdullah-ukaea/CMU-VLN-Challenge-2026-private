@@ -4,9 +4,9 @@ import numpy as np
 
 from qmapnav.mapping import AssociationConfig
 from qmapnav.mapping import AssociationFailure
-from qmapnav.mapping import Day5ProjectionPipeline
 from qmapnav.mapping import DenseRegisteredScanAccumulator
 from qmapnav.mapping import DenseScanAccumulatorConfig
+from qmapnav.mapping import ProjectionPipeline
 from qmapnav.mapping import ProjectionSynchronizer
 from qmapnav.mapping import TimedPanorama
 from qmapnav.mapping import TimedPose
@@ -16,8 +16,8 @@ from qmapnav.mapping.transforms import quaternion_xyzw_to_rotation
 from qmapnav.perception.panorama_projection import PanoramaCameraModel
 
 
-def _pipeline() -> Day5ProjectionPipeline:
-    return Day5ProjectionPipeline(
+def _pipeline() -> ProjectionPipeline:
+    return ProjectionPipeline(
         synchronizer=ProjectionSynchronizer(
             AssociationConfig(max_pose_delta_ns=100, max_scan_delta_ns=100)
         ),

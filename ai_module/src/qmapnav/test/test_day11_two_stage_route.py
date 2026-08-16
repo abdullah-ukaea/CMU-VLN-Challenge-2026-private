@@ -13,7 +13,7 @@ from qmapnav.navigation import SequentialWaypointExecutor
 from qmapnav.navigation import stage_waypoints
 from qmapnav.navigation import two_stage_steps
 from qmapnav.navigation import TwoStageRouteError
-from qmapnav.navigation.two_stage_route import PerceivedRoutePlan
+from qmapnav.navigation.instruction_route import PerceivedRoutePlan
 
 
 QUESTION = (
