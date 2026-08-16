@@ -61,6 +61,7 @@ from qmapnav.mapping.object_lifting import ObjectLifter
 from qmapnav.mapping.object_lifting import ObjectLiftingConfig
 from qmapnav.mapping.object_map import ObjectMap
 from qmapnav.mapping.object_map import ObjectMapConfig
+from qmapnav.mapping.occupancy_grid import occupancy_from_scan_accumulator
 from qmapnav.mapping.orientation_confidence import OrientationConfidenceConfig
 from qmapnav.mapping.point_cloud import decode_scan_arrays
 from qmapnav.mapping.point_cloud import ScanArrays
@@ -95,6 +96,9 @@ from qmapnav.mission.numerical_output_adapter import NumericalOutputAdapter
 from qmapnav.mission.numerical_output_adapter import OFFICIAL_NUMERICAL_TOPIC
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
+from qmapnav.mission.two_stage_route_episode import (
+    TwoStageRouteEpisodeCoordinator,
+)
 from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
 from qmapnav.navigation import DEFAULT_DIRECT_REPUBLISH_LIMIT
 from qmapnav.navigation import DEFAULT_NO_PROGRESS_TIMEOUT
@@ -105,8 +109,12 @@ from qmapnav.navigation import ExecutorEvent
 from qmapnav.navigation import ExecutorEventType
 from qmapnav.navigation import generate_targeted_viewpoints
 from qmapnav.navigation import OneViewpointGuard
+from qmapnav.navigation import SemanticStageExecutor
+from qmapnav.navigation import SemanticStageState
 from qmapnav.navigation import SequentialWaypointExecutor
+from qmapnav.navigation import stage_waypoints
 from qmapnav.navigation import TargetedViewpointConfig
+from qmapnav.navigation import TwoStageRouteError
 from qmapnav.navigation import Waypoint2D
 from qmapnav.navigation import WaypointExecutorState
 from qmapnav.perception.baseline import make_day4_baseline_worker
@@ -209,6 +217,15 @@ class QMapNavNode(Node):
         self._object_reference_started_at: float | None = None
         self._object_reference_fusion_events: deque[dict] = deque(maxlen=512)
         self._numerical_episode: NumericalEpisodeCoordinator | None = None
+        self._instruction_episode: TwoStageRouteEpisodeCoordinator | None = None
+        self._instruction_stage_executor: SemanticStageExecutor | None = None
+        self._instruction_plan = None
+        self._instruction_grid = None
+        self._instruction_state = 'idle'
+        self._instruction_projection_count = 0
+        self._instruction_reobservation_start = 0
+        self._instruction_selected_viewpoint = None
+        self._instruction_motion_started_at: float | None = None
 
         self._question_latch = QuestionLatch()
         self._task_specification: TaskSpecification | None = None
@@ -754,6 +771,263 @@ class QMapNavNode(Node):
                 },
             )
 
+    def _advance_instruction_episode(self, *, force: bool = False) -> None:
+        """Evaluate the live two-stage instruction after a map update."""
+        task = self._task_specification
+        coordinator = self._instruction_episode
+        if (
+            task is None
+            or task.task_type != 'instruction_following'
+            or coordinator is None
+            or self._latest_pose_xy is None
+        ):
+            return
+        if self._instruction_state not in {
+            'initial_observation', 'reobservation'
+        }:
+            return
+
+        self._instruction_projection_count += 1
+        if self._instruction_state == 'initial_observation' and not force:
+            required = int(self.get_parameter(
+                'instruction_initial_observations'
+            ).value)
+            if self._instruction_projection_count < required:
+                return
+        if self._instruction_state == 'reobservation' and not force:
+            if (
+                self._instruction_projection_count
+                <= self._instruction_reobservation_start
+            ):
+                return
+
+        grid = occupancy_from_scan_accumulator(
+            self._scan_accumulator,
+            centre_xy=self._latest_pose_xy,
+            half_extent_m=float(self.get_parameter(
+                'instruction_grid_half_extent_m'
+            ).value),
+            resolution=float(self.get_parameter(
+                'instruction_grid_resolution_m'
+            ).value),
+            clearance=float(self.get_parameter(
+                'instruction_grid_known_free_clearance_m'
+            ).value),
+        )
+        action = coordinator.evaluate(
+            self._object_map,
+            self._structural_map,
+            grid=grid,
+            current_pose_xy_yaw=(
+                self._latest_pose_xy[0],
+                self._latest_pose_xy[1],
+                self._latest_heading(),
+            ),
+            time_remaining_sec=max(
+                0.0, self._episode_time_limit - self._elapsed()
+            ),
+        )
+        self._instruction_grid = grid
+        self._trace(
+            event='two_stage_route_decision',
+            candidate_actions=('route', 'explore', 'fallback', 'abort'),
+            selected_action=action.action,
+            selection_reason=action.reason,
+            details=action.to_dict(),
+        )
+        if action.action in {'route', 'fallback'}:
+            self._start_instruction_plan(action.plan, grid, action.action)
+            return
+        if action.action == 'explore':
+            viewpoint = action.selection.selected
+            if viewpoint is None:
+                self._instruction_state = 'terminal'
+                return
+            self._instruction_selected_viewpoint = viewpoint
+            self._instruction_state = 'exploration_active'
+            self._instruction_motion_started_at = self._now()
+            self.start_route([Waypoint2D(*viewpoint.pose_xy_yaw)])
+            return
+        self._instruction_state = 'terminal'
+
+    def _start_instruction_plan(self, plan, grid, action: str) -> None:
+        """Start semantic stage A and publish only its first waypoint."""
+        if plan is None or self._latest_pose_xy is None:
+            self._instruction_state = 'terminal'
+            return
+        waypoints = stage_waypoints(
+            plan,
+            0,
+            grid=grid,
+            start_xy=self._latest_pose_xy,
+            spacing_m=float(self.get_parameter(
+                'instruction_waypoint_spacing_m'
+            ).value),
+        )
+        if not waypoints:
+            self._instruction_state = 'terminal'
+            self._trace(
+                event='instruction_route_failed',
+                selected_action='terminate_without_unreachable_waypoint',
+                selection_reason='stage_a_path_unavailable',
+                terminal_status='failed',
+            )
+            return
+        self._instruction_plan = plan
+        self._instruction_stage_executor = SemanticStageExecutor(
+            plan, self._waypoint_executor
+        )
+        first = self._instruction_stage_executor.start(
+            waypoints, now=self._now()
+        )
+        self._instruction_state = 'semantic_route_active'
+        self._publish_waypoint(first)
+        self._record_executor_events()
+        self._trace(
+            event='instruction_route_started',
+            selected_action='publish_stage_a_first_waypoint',
+            selection_reason=f'{action}:{plan.route_status}',
+            active_route_index=0,
+            details={
+                'waypoint_count': len(waypoints),
+                'plan': plan.to_dict(),
+            },
+        )
+
+    def _update_instruction_pose(
+        self,
+        x: float,
+        y: float,
+        heading: float,
+    ) -> bool:
+        """Advance semantic execution and begin stage B only after stage A."""
+        executor = self._instruction_stage_executor
+        if (
+            self._instruction_state != 'semantic_route_active'
+            or executor is None
+        ):
+            return False
+        next_goal = executor.update_pose(
+            x, y, heading, now=self._now()
+        )
+        if next_goal is not None:
+            self._publish_waypoint(next_goal)
+        self._record_executor_events()
+        self._record_semantic_stage_events()
+        if executor.state is SemanticStageState.VERIFY_STAGE_A:
+            self._begin_instruction_stage_b((x, y))
+        elif executor.state is SemanticStageState.COMPLETE:
+            self._instruction_state = 'complete'
+            self._trace(
+                event='instruction_route_completed',
+                selected_action='finish_instruction_episode',
+                selection_reason='terminal_semantic_region_satisfied',
+                terminal_status='complete',
+            )
+        return True
+
+    def _begin_instruction_stage_b(self, start_xy) -> None:
+        """Plan stage B from the semantically verified stage-A pose."""
+        executor = self._instruction_stage_executor
+        if (
+            executor is None
+            or self._instruction_plan is None
+            or self._instruction_grid is None
+        ):
+            self._instruction_state = 'terminal'
+            return
+        waypoints = stage_waypoints(
+            self._instruction_plan,
+            1,
+            grid=self._instruction_grid,
+            start_xy=start_xy,
+            spacing_m=float(self.get_parameter(
+                'instruction_waypoint_spacing_m'
+            ).value),
+        )
+        if not waypoints:
+            executor.fail('stage_b_path_unavailable')
+            self._instruction_state = 'terminal'
+            return
+        first = executor.begin_stage_b(waypoints, now=self._now())
+        self._publish_waypoint(first)
+        self._record_executor_events()
+        self._trace(
+            event='instruction_stage_b_started',
+            selected_action='publish_stage_b_first_waypoint',
+            selection_reason='stage_a_semantically_verified',
+            active_route_index=1,
+            details={'waypoint_count': len(waypoints)},
+        )
+
+    def _record_semantic_stage_events(self) -> None:
+        """Copy semantic-region completion events into the decision trace."""
+        executor = self._instruction_stage_executor
+        if executor is None:
+            return
+        for event in executor.drain_events():
+            self._trace(
+                event='semantic_stage_complete',
+                selected_action='advance_semantic_route',
+                selection_reason='target_region_satisfied',
+                active_route_index=event.stage_index,
+                details=event.to_dict(),
+            )
+
+    def _finish_instruction_exploration(self, *, succeeded: bool) -> None:
+        """Finish one bounded viewpoint and open re-observation/fallback."""
+        coordinator = self._instruction_episode
+        viewpoint = self._instruction_selected_viewpoint
+        if (
+            self._instruction_state != 'exploration_active'
+            or coordinator is None
+            or viewpoint is None
+        ):
+            return
+        duration = max(
+            0.0,
+            self._now() - (self._instruction_motion_started_at or self._now()),
+        )
+        distance = viewpoint.travel_cost_m
+        if succeeded and self._latest_pose_xy is not None:
+            coordinator.notify_viewpoint_arrived(
+                pose_xy_yaw=(
+                    self._latest_pose_xy[0],
+                    self._latest_pose_xy[1],
+                    self._latest_heading(),
+                ),
+                distance_m=distance,
+                duration_sec=duration,
+                focus_key=viewpoint.viewpoint_id,
+            )
+        else:
+            coordinator.notify_viewpoint_failed(
+                distance_m=distance,
+                duration_sec=duration,
+            )
+        self._instruction_state = 'reobservation'
+        self._instruction_reobservation_start = (
+            self._instruction_projection_count
+        )
+        self._trace(
+            event='instruction_viewpoint_finished',
+            selected_action=(
+                'collect_reobservation' if succeeded
+                else 'evaluate_bounded_fallback'
+            ),
+            selection_reason=(
+                'viewpoint_arrived' if succeeded
+                else 'viewpoint_execution_failed'
+            ),
+            details={
+                'viewpoint_id': viewpoint.viewpoint_id,
+                'duration_sec': duration,
+                'travel_cost_m': distance,
+            },
+        )
+        if not succeeded:
+            self._advance_instruction_episode(force=True)
+
     def _write_object_reference_result(
         self,
         resolution,
@@ -1069,6 +1343,41 @@ class QMapNavNode(Node):
                     selected_action='collect_persistent_count_evidence',
                     selection_reason='numerical_task_latched',
                 )
+            if self._task_specification.task_type == 'instruction_following':
+                self._instruction_episode = TwoStageRouteEpisodeCoordinator(
+                    candidate_config=self._reasoning_candidate_config,
+                    spatial_config=self._reasoning_spatial_config,
+                    vertical_config=self._relation_graph.vertical_config,
+                    support_config=self._relation_graph.support_config,
+                    ambiguity_config=self._reasoning_ambiguity_config,
+                )
+                try:
+                    self._instruction_episode.start(
+                        self._task_specification
+                    )
+                except TwoStageRouteError as error:
+                    self._instruction_episode = None
+                    self._instruction_state = 'unsupported'
+                    self._trace(
+                        event='instruction_episode_unsupported',
+                        selected_action='retain_terminal_target_for_fallback',
+                        selection_reason='outside_day11_two_stage_slice',
+                        details={'error': str(error)},
+                    )
+                else:
+                    self._instruction_stage_executor = None
+                    self._instruction_plan = None
+                    self._instruction_grid = None
+                    self._instruction_state = 'initial_observation'
+                    self._instruction_projection_count = 0
+                    self._instruction_reobservation_start = 0
+                    self._instruction_selected_viewpoint = None
+                    self._instruction_motion_started_at = None
+                    self._trace(
+                        event='instruction_episode_started',
+                        selected_action='collect_initial_evidence',
+                        selection_reason='supported_two_stage_task_latched',
+                    )
             self.get_logger().info('Accepted challenge question')
         elif decision.status is QuestionLatchStatus.DUPLICATE:
             self._trace(
@@ -1131,15 +1440,23 @@ class QMapNavNode(Node):
                 self._projection_pipeline.add_pose(self._latest_timed_pose)
         except ValueError as error:
             self.get_logger().warning(f'Rejected projection pose: {error}')
-        next_goal = self._waypoint_executor.update_pose(
-            position.x,
-            position.y,
-            heading,
-            now=self._now(),
-        )
-        if next_goal is not None:
-            self._publish_waypoint(next_goal)
-        self._record_executor_events()
+        if not self._update_instruction_pose(
+            position.x, position.y, heading
+        ):
+            next_goal = self._waypoint_executor.update_pose(
+                position.x,
+                position.y,
+                heading,
+                now=self._now(),
+            )
+            if next_goal is not None:
+                self._publish_waypoint(next_goal)
+            self._record_executor_events()
+        if (
+            self._instruction_state == 'exploration_active'
+            and self._waypoint_executor.state is WaypointExecutorState.COMPLETE
+        ):
+            self._finish_instruction_exploration(succeeded=True)
 
     def _on_watchdog(self) -> None:
         if self._expire_episode_if_needed():
@@ -1189,6 +1506,35 @@ class QMapNavNode(Node):
             self._commit_object_reference_answer(
                 self._object_reference_resolution
             )
+        if (
+            self._instruction_state == 'exploration_active'
+            and self._waypoint_executor.state is WaypointExecutorState.FAILED
+        ):
+            self._finish_instruction_exploration(succeeded=False)
+        semantic = self._instruction_stage_executor
+        if (
+            self._instruction_state == 'semantic_route_active'
+            and semantic is not None
+            and self._waypoint_executor.state is WaypointExecutorState.FAILED
+        ):
+            semantic.fail('bounded_waypoint_execution_failed')
+            self._instruction_state = 'terminal'
+            self._trace(
+                event='instruction_route_failed',
+                selected_action='terminate_failed_semantic_route',
+                selection_reason='bounded_waypoint_execution_failed',
+                terminal_status='failed',
+            )
+        if (
+            self._instruction_state in {
+                'initial_observation', 'reobservation'
+            }
+            and self._episode_time_limit - self._elapsed()
+            <= float(self.get_parameter(
+                'instruction_final_route_reserve_sec'
+            ).value)
+        ):
+            self._advance_instruction_episode(force=True)
 
     def _on_registered_scan(self, message: PointCloud2) -> None:
         if self._expire_episode_if_needed():
@@ -1390,6 +1736,7 @@ class QMapNavNode(Node):
         self._advance_numerical_episode(
             self._projection_viewpoint_id(result)
         )
+        self._advance_instruction_episode()
 
     def _update_persistent_maps(
         self,
@@ -2368,6 +2715,14 @@ class QMapNavNode(Node):
         self.declare_parameter('numerical_maximum_unresolved_candidates', 0)
         self.declare_parameter('numerical_final_commit_reserve_sec', 30.0)
         self.declare_parameter('numerical_maximum_verification_sec', 180.0)
+        self.declare_parameter('instruction_initial_observations', 3)
+        self.declare_parameter('instruction_grid_half_extent_m', 10.0)
+        self.declare_parameter('instruction_grid_resolution_m', 0.25)
+        self.declare_parameter(
+            'instruction_grid_known_free_clearance_m', 0.25
+        )
+        self.declare_parameter('instruction_waypoint_spacing_m', 1.0)
+        self.declare_parameter('instruction_final_route_reserve_sec', 300.0)
         self.declare_parameter('publish_object_matching_waypoint', True)
         self.declare_parameter('object_reference_initial_observations', 3)
         self.declare_parameter(

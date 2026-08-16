@@ -26,6 +26,14 @@ qmapnav:
     numerical_final_commit_reserve_sec: 30.0
     numerical_maximum_verification_sec: 180.0
 
+    # Day 12.1 live two-stage instruction composition.
+    instruction_initial_observations: 3
+    instruction_grid_half_extent_m: 10.0
+    instruction_grid_resolution_m: 0.25
+    instruction_grid_known_free_clearance_m: 0.25
+    instruction_waypoint_spacing_m: 1.0
+    instruction_final_route_reserve_sec: 300.0
+
     # Day 10 object answer policy and bounded re-observation.
     publish_object_matching_waypoint: true
     object_reference_initial_observations: 3

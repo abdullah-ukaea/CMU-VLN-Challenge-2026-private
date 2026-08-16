@@ -52,11 +52,18 @@ from qmapnav.navigation.semantic_regions import NearRegionConfig
 from qmapnav.navigation.two_stage_route import PerceivedRoutePlan
 from qmapnav.navigation.two_stage_route import plan_two_stage_route
 from qmapnav.navigation.two_stage_route import two_stage_steps
+from qmapnav.reasoning.ambiguity import AmbiguityConfig
 from qmapnav.reasoning.candidate_generation import CandidateGenerationConfig
 from qmapnav.reasoning.candidate_generation import (
     generate_candidates_from_maps,
 )
+from qmapnav.reasoning.object_reference_solver import (
+    resolve_object_reference_from_maps,
+)
 from qmapnav.reasoning.reference_resolver import resolve_single_reference
+from qmapnav.reasoning.spatial_relations import SpatialRelationConfig
+from qmapnav.reasoning.support_relations import SupportRelationConfig
+from qmapnav.reasoning.vertical_relations import VerticalRelationConfig
 
 
 class TwoStageRouteEpisodeState(str, Enum):
@@ -138,9 +145,41 @@ def resolve_stage_reference(
     object_map: ObjectMap,
     structural_map: StructuralMap,
     *,
+    task: TaskSpecification | None = None,
     candidate_config: CandidateGenerationConfig | None = None,
+    spatial_config: SpatialRelationConfig | None = None,
+    vertical_config: VerticalRelationConfig | None = None,
+    support_config: SupportRelationConfig | None = None,
+    ambiguity_config: AmbiguityConfig | None = None,
 ) -> StageResolution:
-    """Ground one stage entity through the Day 9 perceived resolver."""
+    """Ground one stage entity through the complete perceived resolver."""
+    if task is not None:
+        stage_task = _stage_reference_task(task, reference.entity_id)
+        resolution = resolve_object_reference_from_maps(
+            stage_task,
+            object_map,
+            structural_map,
+            candidate_config=candidate_config,
+            spatial_config=spatial_config,
+            vertical_config=vertical_config,
+            support_config=support_config,
+            ambiguity_config=ambiguity_config,
+        )
+        instance = None
+        selected = resolution.selected_target_id
+        if selected is not None and selected.isdigit():
+            try:
+                instance = object_map.get(int(selected))
+            except (KeyError, TypeError, ValueError):
+                instance = None
+        return StageResolution(
+            reference_id=reference.entity_id,
+            class_name=reference.class_name,
+            instance=instance,
+            confidence_margin=resolution.normalized_margin,
+            status=resolution.resolution_status,
+        )
+
     generated = generate_candidates_from_maps(
         reference, object_map, structural_map, candidate_config
     )
@@ -185,6 +224,10 @@ class TwoStageRouteEpisodeCoordinator:
         generation_config: ViewpointGenerationConfig | None = None,
         scoring_config: ViewpointScoringConfig | None = None,
         candidate_config: CandidateGenerationConfig | None = None,
+        spatial_config: SpatialRelationConfig | None = None,
+        vertical_config: VerticalRelationConfig | None = None,
+        support_config: SupportRelationConfig | None = None,
+        ambiguity_config: AmbiguityConfig | None = None,
         resolver: Callable[..., StageResolution] = resolve_stage_reference,
     ) -> None:
         """Create an idle coordinator for one instruction episode."""
@@ -197,6 +240,10 @@ class TwoStageRouteEpisodeCoordinator:
         )
         self._scoring_config = scoring_config or ViewpointScoringConfig()
         self._candidate_config = candidate_config
+        self._spatial_config = spatial_config
+        self._vertical_config = vertical_config
+        self._support_config = support_config
+        self._ambiguity_config = ambiguity_config
         self._resolver = resolver
         self._state = TwoStageRouteEpisodeState.IDLE
         self._task: TaskSpecification | None = None
@@ -265,7 +312,12 @@ class TwoStageRouteEpisodeCoordinator:
                 entities[entity_id],
                 object_map,
                 structural_map,
+                task=self._task,
                 candidate_config=self._candidate_config,
+                spatial_config=self._spatial_config,
+                vertical_config=self._vertical_config,
+                support_config=self._support_config,
+                ambiguity_config=self._ambiguity_config,
             )
             for _, _, entity_id in self._steps
         )
@@ -331,6 +383,20 @@ class TwoStageRouteEpisodeCoordinator:
         )
         self._visited = self._visited + (
             VisitedViewpoint(tuple(pose_xy_yaw), focus_key=focus_key),
+        )
+        self._state = TwoStageRouteEpisodeState.REOBSERVATION
+
+    def notify_viewpoint_failed(
+        self,
+        *,
+        distance_m: float,
+        duration_sec: float,
+    ) -> None:
+        """Consume a failed viewpoint attempt and open bounded fallback."""
+        if self._state is not TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE:
+            raise RuntimeError('no exploration viewpoint is active')
+        self._budget.consume(
+            distance_m=distance_m, duration_sec=duration_sec
         )
         self._state = TwoStageRouteEpisodeState.REOBSERVATION
 
@@ -523,6 +589,51 @@ def _dominant_class(instance: ObjectInstance) -> str:
     return max(
         instance.class_scores.items(), key=lambda item: (item[1], item[0])
     )[0]
+
+
+def _stage_reference_task(
+    task: TaskSpecification,
+    target_reference_id: str,
+) -> TaskSpecification:
+    """Build the relation-connected object-reference subtask for one stage."""
+    entities_by_id = {item.entity_id: item for item in task.entities}
+    if target_reference_id not in entities_by_id:
+        raise ValueError('stage target is not present in the task')
+
+    connected = {target_reference_id}
+    included_relations = []
+    changed = True
+    while changed:
+        changed = False
+        for relation in task.relations:
+            participants = {
+                relation.subject_entity_id,
+                *relation.anchor_entity_ids,
+            }
+            if not participants.intersection(connected):
+                continue
+            if relation not in included_relations:
+                included_relations.append(relation)
+            before = len(connected)
+            connected.update(participants)
+            changed = changed or len(connected) != before
+
+    target = entities_by_id[target_reference_id]
+    entities = [target]
+    entities.extend(
+        item for item in task.entities
+        if item.entity_id in connected and item.entity_id != target_reference_id
+    )
+    return TaskSpecification(
+        task_type='object_reference',
+        entities=entities,
+        relations=included_relations,
+        ordered_route_steps=[],
+        forbidden_constraints=[],
+        terminal_target=None,
+        parse_confidence=task.parse_confidence,
+        parse_mode=task.parse_mode,
+    )
 
 
 def _first_support_xy(candidate, object_map):
