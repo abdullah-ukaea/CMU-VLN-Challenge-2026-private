@@ -11,17 +11,6 @@ from qmapnav.evaluation.dataset_loader import load_vla3d_objects
 from qmapnav.evaluation.dataset_loader import load_vla3d_regions
 from qmapnav.evaluation.dataset_loader import load_vla3d_relations
 from qmapnav.evaluation.dataset_loader import merge_unity_and_vla_objects
-from qmapnav.evaluation.detector_benchmark import CandidatePredictions
-from qmapnav.evaluation.detector_benchmark import DetectorBenchmarkCase
-from qmapnav.evaluation.detector_benchmark import TwoCandidateDetectorBenchmark
-from qmapnav.evaluation.detector_dataset import DetectorDataset
-from qmapnav.evaluation.detector_dataset import DetectorDatasetCase
-from qmapnav.evaluation.detector_dataset import load_detector_dataset
-from qmapnav.evaluation.detector_dataset import roll_visible_instance
-from qmapnav.evaluation.detector_metrics import DetectionMetricCounts
-from qmapnav.evaluation.detector_metrics import empty_metric_counts
-from qmapnav.evaluation.detector_metrics import score_panorama_detections
-from qmapnav.evaluation.detector_metrics import VisibleInstance
 from qmapnav.evaluation.ground_truth import ColourAttribute
 from qmapnav.evaluation.ground_truth import ground_truth_to_data
 from qmapnav.evaluation.ground_truth import ground_truth_to_json
@@ -31,13 +20,6 @@ from qmapnav.evaluation.ground_truth import OracleRelation
 from qmapnav.evaluation.ground_truth import OracleScene
 from qmapnav.evaluation.ground_truth import OracleTrajectory
 from qmapnav.evaluation.ground_truth import QuestionRecord
-from qmapnav.evaluation.instance_fusion import AnchorStabilityMetrics
-from qmapnav.evaluation.instance_fusion import evaluate_anchor_stability
-from qmapnav.evaluation.instance_fusion import evaluate_fusion_geometry
-from qmapnav.evaluation.instance_fusion import evaluate_identity_assignments
-from qmapnav.evaluation.instance_fusion import FusionGeometryMetrics
-from qmapnav.evaluation.instance_fusion import IdentityAssignment
-from qmapnav.evaluation.instance_fusion import IdentityMetrics
 from qmapnav.evaluation.metrics import count_accuracy_metric
 from qmapnav.evaluation.metrics import CountAccuracyMetric
 from qmapnav.evaluation.metrics import forbidden_region_metrics
@@ -88,11 +70,9 @@ from qmapnav.evaluation.trace import TraceRecorderStats
 __all__ = [
     'AnchorStabilityMetrics',
     'ColourAttribute',
-    'CandidatePredictions',
     'CountAccuracyMetric',
     'DatasetLoadError',
     'DecisionTraceEvent',
-    'DetectorBenchmarkCase',
     'InMemoryTraceRecorder',
     'JsonlDecisionTraceRecorder',
     'ForbiddenRegionMetric',
@@ -115,27 +95,12 @@ __all__ = [
     'TraceRecorder',
     'TraceRecorderStats',
     'TimingMetric',
-    'TwoCandidateDetectorBenchmark',
-    'DetectionMetricCounts',
-    'DetectorDataset',
-    'DetectorDatasetCase',
-    'VisibleInstance',
-    'empty_metric_counts',
-    'evaluate_anchor_stability',
-    'evaluate_fusion_geometry',
-    'evaluate_identity_assignments',
     'FailureClassification',
     'FixCandidate',
-    'FusionGeometryMetrics',
-    'load_detector_dataset',
-    'roll_visible_instance',
-    'score_panorama_detections',
     'count_accuracy_metric',
     'forbidden_region_metrics',
     'ground_truth_to_data',
     'ground_truth_to_json',
-    'IdentityAssignment',
-    'IdentityMetrics',
     'load_ascii_trajectory_ply',
     'load_development_scenes',
     'load_oracle_scene',

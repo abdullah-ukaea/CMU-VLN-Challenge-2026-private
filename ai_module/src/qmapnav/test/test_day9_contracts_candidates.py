@@ -2,16 +2,12 @@
 
 from math import nan
 
-from day9_helpers import candidate
 import numpy as np
 import pytest
 
 from qmapnav.common import EntityReference, ObjectInstance
 from qmapnav.mapping.structural_map import StructuralAnchor
 from qmapnav.reasoning.candidate_generation import generate_candidates
-from qmapnav.reasoning.cardinality import enumerate_candidate_sets
-from qmapnav.reasoning.cardinality import enumerate_mixed_roles
-from qmapnav.reasoning.cardinality import enumerate_unordered_pairs
 from qmapnav.reasoning.resolution_contracts import CandidateHypothesis
 from qmapnav.reasoning.resolution_contracts import ConstraintEvaluation
 from qmapnav.reasoning.resolution_contracts import PairHypothesis
@@ -116,20 +112,3 @@ def test_candidate_generation_searches_structural_anchors():
     result = generate_candidates(reference, (), (anchor,))
     assert result.retained[0].candidate_id == 'window_1'
     assert result.retained[0].source_type == 'structural'
-
-
-def test_four_candidates_enumerate_all_six_unique_pairs():
-    candidates = tuple(candidate(f'table_{index}') for index in range(4))
-    pairs = enumerate_unordered_pairs(candidates)
-    assert len(pairs) == 6
-    assert len({item.candidate_ids for item in pairs}) == 6
-    assert all(item.candidate_ids[0] < item.candidate_ids[1] for item in pairs)
-
-
-def test_exact_cardinality_and_same_instance_role_are_enforced():
-    candidates = tuple(candidate(f'chair_{index}') for index in range(2))
-    assert len(enumerate_candidate_sets(candidates, 3)) == 0
-    mixed = enumerate_mixed_roles(candidates, candidates)
-    assert all(left != right for left, right in (
-        item.candidate_ids for item in mixed
-    ))

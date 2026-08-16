@@ -21,7 +21,6 @@ from qmapnav.perception.cross_crop_nms import panorama_box_iou
 from qmapnav.perception.cross_crop_nms import project_crop_detections
 from qmapnav.perception.detector_interface import DetectorIdentity
 from qmapnav.perception.detector_interface import OpenVocabularyDetector
-from qmapnav.perception.grounding_dino_detector import GroundingDinoTinyDetector
 from qmapnav.perception.panorama_projection import camera_rays_to_crop_pixels
 from qmapnav.perception.panorama_projection import camera_rays_to_panorama_pixels
 from qmapnav.perception.panorama_projection import crop_pixels_to_camera_rays
@@ -48,7 +47,6 @@ __all__ = [
     'DetectorClass',
     'DetectorDependencyError',
     'DetectorIdentity',
-    'GroundingDinoTinyDetector',
     'OpenVocabularyDetector',
     'PanoramaBox',
     'PanoramaCameraModel',

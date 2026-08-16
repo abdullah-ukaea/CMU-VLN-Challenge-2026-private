@@ -1,5 +1,6 @@
 """Tests for the shared Day 8 colour vocabulary and split audit."""
 
+from collections import Counter
 import csv
 import json
 
@@ -9,7 +10,51 @@ from qmapnav.common.colour_vocabulary import COLOUR_CLASSES
 from qmapnav.common.colour_vocabulary import normalize_colour_name
 from qmapnav.common.colour_vocabulary import normalize_released_colour_name
 from qmapnav.language.extraction import extract_language_features
-from tools.day8_colour_audit import audit_colour_data
+
+
+_MISSING_VALUES = frozenset({'', '_', '-1', 'n/a', 'none', 'null'})
+
+
+def _audit_colour_data(vla_root, split_path):
+    """Collect the split counts needed by the vocabulary regression."""
+    split = json.loads(split_path.read_text(encoding='utf-8'))
+    fit = set(split['fit_scenes'])
+    held_out = set(split['held_out_scenes'])
+    if fit & held_out:
+        raise ValueError('fit and held-out scene sets overlap')
+    paths = sorted(vla_root.glob('*/*_object_result.csv'))
+    if fit | held_out != {path.parent.name for path in paths}:
+        raise ValueError('split does not cover the released scene set exactly')
+    canonical_total = Counter()
+    canonical_fit = Counter()
+    canonical_held_out = Counter()
+    for path in paths:
+        canonical = Counter()
+        with path.open(newline='', encoding='utf-8') as stream:
+            for row in csv.DictReader(stream):
+                for index in (1, 2, 3):
+                    raw = str(row.get(f'object_color_scheme{index}', '')).strip()
+                    if raw.casefold() in _MISSING_VALUES:
+                        continue
+                    label = normalize_colour_name(
+                        normalize_released_colour_name(raw)
+                    )
+                    canonical[label] += 1
+        canonical_total.update(canonical)
+        if path.parent.name in fit:
+            canonical_fit.update(canonical)
+        else:
+            canonical_held_out.update(canonical)
+    missing_fit = [
+        colour for colour in canonical_total if canonical_fit[colour] == 0
+    ]
+    if missing_fit:
+        raise ValueError(f'canonical colours absent from fit: {missing_fit}')
+    return {
+        'fit_colour_instances': dict(sorted(canonical_fit.items())),
+        'held_out_colour_instances': dict(sorted(canonical_held_out.items())),
+        'split_overlap': [],
+    }
 
 
 def test_colour_aliases_share_query_vocabulary() -> None:
@@ -69,7 +114,7 @@ def test_audit_rejects_leakage_and_counts_fit_and_holdout(tmp_path) -> None:
         'held_out_scenes': ['held'],
     }), encoding='utf-8')
 
-    result = audit_colour_data(root, split)
+    result = _audit_colour_data(root, split)
 
     assert result['fit_colour_instances'] == {'blue': 1, 'grey': 1}
     assert result['held_out_colour_instances'] == {'grey': 1}

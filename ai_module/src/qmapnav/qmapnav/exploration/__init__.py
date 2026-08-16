@@ -6,8 +6,6 @@ from qmapnav.exploration.exploration_budget import ExplorationBudgetTracker
 from qmapnav.exploration.exploration_need import ABSENT_ENTITY_NEEDS
 from qmapnav.exploration.exploration_need import ExplorationNeed
 from qmapnav.exploration.exploration_need import NEED_TYPES
-from qmapnav.exploration.exploration_trace import ViewpointOutcomeEvent
-from qmapnav.exploration.exploration_trace import ViewpointSelectionEvent
 from qmapnav.exploration.small_object_mode import decide_small_object_mode
 from qmapnav.exploration.small_object_mode import is_support_surface
 from qmapnav.exploration.small_object_mode import LIKELY_SUPPORTS
@@ -74,11 +72,9 @@ __all__ = [
     'SupportSearchRecord',
     'ViewpointCandidate',
     'ViewpointGenerationConfig',
-    'ViewpointOutcomeEvent',
     'ViewpointScoreTerms',
     'ViewpointScoringConfig',
     'ViewpointSelection',
-    'ViewpointSelectionEvent',
     'VisitedViewpoint',
     'accept_candidate_pose',
     'classify_negative_evidence',
