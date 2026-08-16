@@ -346,6 +346,7 @@ def occupancy_from_scan_accumulator(
     half_extent_m: float = 8.0,
     resolution: float = 0.25,
     clearance: float = 0.25,
+    robot_footprint_radius_m: float = 0.35,
 ) -> OccupancyGrid2D:
     """
     Rasterize a bounded window of the persistent scan map.
@@ -355,6 +356,10 @@ def occupancy_from_scan_accumulator(
     """
     if not isfinite(half_extent_m) or half_extent_m <= 0.0:
         raise ValueError('half_extent_m must be finite and positive')
+    if not isfinite(robot_footprint_radius_m) or (
+        robot_footprint_radius_m < 0.0
+    ):
+        raise ValueError('robot_footprint_radius_m must be non-negative')
     size = max(1, int(ceil(2.0 * half_extent_m / resolution)))
     origin = (centre_xy[0] - half_extent_m, centre_xy[1] - half_extent_m)
     grid = OccupancyGrid2D(resolution, origin, size, size)
@@ -364,7 +369,7 @@ def occupancy_from_scan_accumulator(
     max_z = getattr(config, 'navigation_max_z', 1.80)
     if len(points):
         navigation = points[
-            (points[:, 2] >= min_z) & (points[:, 2] <= max_z)
+            (points[:, 2] > min_z) & (points[:, 2] <= max_z)
         ]
         for point in navigation:
             cell = grid.point_to_cell((float(point[0]), float(point[1])))
@@ -379,6 +384,20 @@ def occupancy_from_scan_accumulator(
             if accumulator.is_known_free(
                 centre[0], centre[1], clearance=clearance
             ):
+                grid.set_state(cell, CELL_FREE)
+    # The current robot footprint is observed free by construction.  Clearing
+    # it after voxel rasterization prevents quantized ground returns at the
+    # lower navigation boundary from trapping every planner at startup.
+    half_diagonal = resolution * (2.0 ** 0.5) / 2.0
+    clear_radius = robot_footprint_radius_m + half_diagonal
+    for x_index in range(size):
+        for y_index in range(size):
+            cell = (x_index, y_index)
+            cell_centre = grid.cell_centre(cell)
+            if hypot(
+                cell_centre[0] - centre_xy[0],
+                cell_centre[1] - centre_xy[1],
+            ) <= clear_radius:
                 grid.set_state(cell, CELL_FREE)
     return grid
 

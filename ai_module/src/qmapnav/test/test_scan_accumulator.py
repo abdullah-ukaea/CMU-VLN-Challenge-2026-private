@@ -8,6 +8,9 @@ import pytest
 from qmapnav.mapping import AccumulationStatus
 from qmapnav.mapping import RegisteredScanAccumulator
 from qmapnav.mapping import ScanAccumulatorConfig
+from qmapnav.mapping.occupancy_grid import CELL_FREE
+from qmapnav.mapping.occupancy_grid import CELL_OCCUPIED
+from qmapnav.mapping.occupancy_grid import occupancy_from_scan_accumulator
 
 
 def test_empty_and_non_finite_scans_are_safe() -> None:
@@ -199,3 +202,29 @@ def test_accumulator_rejects_malformed_arrays_and_configuration() -> None:
         )
     with pytest.raises(ValueError, match='voxel_size'):
         ScanAccumulatorConfig(voxel_size=0.0)
+
+
+def test_occupancy_rasterizer_clears_quantized_ground_at_robot_start() -> None:
+    """A lower-bound ground voxel must not trap the planner at spawn."""
+    accumulator = RegisteredScanAccumulator(
+        ScanAccumulatorConfig(voxel_size=0.2)
+    )
+    accumulator.add_scan(
+        np.array([
+            [0.1, 0.1, 0.11],
+            [1.1, 0.1, 0.5],
+        ]),
+        frame_id='map',
+        timestamp=0.0,
+        sensor_origin_xy=(0.0, 0.0),
+    )
+
+    grid = occupancy_from_scan_accumulator(
+        accumulator,
+        centre_xy=(0.0, 0.0),
+        half_extent_m=2.0,
+        resolution=0.25,
+    )
+
+    assert grid.state(grid.point_to_cell((0.0, 0.0))) == CELL_FREE
+    assert grid.state(grid.point_to_cell((1.1, 0.1))) == CELL_OCCUPIED
