@@ -111,6 +111,29 @@ def test_unresolved_stage_reports_cleanly_without_deadlock() -> None:
     assert plan.stages == ()
 
 
+def test_resolved_stage_a_can_be_used_for_route_first_reobservation() -> None:
+    task = _task()
+    grid = open_grid(half_extent=10.0)
+    steps = two_stage_steps(task)
+    partial = {steps[0][2]: make_instance(
+        67, 'potted_plant', (4.0, 0.0, 0.5), (0.8, 0.8, 1.4)
+    )}
+
+    plan = plan_two_stage_route(
+        task,
+        partial,
+        grid=grid,
+        start_xy=(0.0, -6.0),
+        allow_stage_a_only=True,
+    )
+
+    assert plan.route_status == 'stage_a_only'
+    assert plan.executable is True
+    assert plan.unresolved_stages == (1,)
+    assert plan.stages[0].resolved_instance_id == '67'
+    assert plan.stages[0].target_reference_id == steps[0][2]
+
+
 def test_blocked_region_reports_blocked_not_planned() -> None:
     task = _task()
     grid = open_grid(half_extent=10.0)

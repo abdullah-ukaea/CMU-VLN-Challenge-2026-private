@@ -134,6 +134,42 @@ def test_exhausted_budget_falls_back_to_the_terminal_target() -> None:
     assert action.plan.unresolved_stages == (0,)
 
 
+def test_missing_terminal_routes_to_resolved_stage_a_then_reobserves() -> None:
+    task = _task()
+    first, _ = _entities(task)
+    coordinator = TwoStageRouteEpisodeCoordinator(
+        resolver=_stub_resolver({
+            first: make_instance(67, 'potted_plant', (4.0, 0.0, 0.5)),
+        })
+    )
+    coordinator.start(task)
+
+    action = coordinator.evaluate(
+        ObjectMap(),
+        StructuralMap(),
+        grid=open_grid(half_extent=10.0),
+        current_pose_xy_yaw=(0.0, -6.0, 0.0),
+        time_remaining_sec=500.0,
+    )
+
+    assert action.action == 'fallback'
+    assert action.plan.route_status == 'stage_a_only'
+    assert action.plan.stages[0].resolved_instance_id == '67'
+    coordinator.notify_stage_a_information_arrived(
+        pose_xy_yaw=(3.0, 0.0, 0.0)
+    )
+    assert coordinator.state is TwoStageRouteEpisodeState.REOBSERVATION
+
+    second = coordinator.evaluate(
+        ObjectMap(),
+        StructuralMap(),
+        grid=open_grid(half_extent=10.0),
+        current_pose_xy_yaw=(3.0, 0.0, 0.0),
+        time_remaining_sec=450.0,
+    )
+    assert second.action == 'abort'
+
+
 def test_no_resolvable_stage_aborts_cleanly_without_deadlock() -> None:
     task = _task()
     coordinator = TwoStageRouteEpisodeCoordinator(

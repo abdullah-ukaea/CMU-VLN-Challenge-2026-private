@@ -251,6 +251,7 @@ class TwoStageRouteEpisodeCoordinator:
         self._visited: tuple[VisitedViewpoint, ...] = ()
         self._support_history = SupportSearchHistory()
         self._last_action: TwoStageRouteAction | None = None
+        self._stage_a_information_used = False
 
     @property
     def state(self) -> TwoStageRouteEpisodeState:
@@ -400,6 +401,26 @@ class TwoStageRouteEpisodeCoordinator:
         )
         self._state = TwoStageRouteEpisodeState.REOBSERVATION
 
+    def notify_stage_a_information_arrived(
+        self,
+        *,
+        pose_xy_yaw: tuple[float, float, float],
+    ) -> None:
+        """Open one re-observation window after the partial stage-A route."""
+        if self._state is not TwoStageRouteEpisodeState.ROUTE_COMMITTED:
+            raise RuntimeError('no stage-A information route is active')
+        if (
+            self._last_action is None
+            or self._last_action.plan is None
+            or self._last_action.plan.route_status != 'stage_a_only'
+        ):
+            raise RuntimeError('the committed route is not stage-A-only')
+        self._visited = self._visited + (
+            VisitedViewpoint(tuple(pose_xy_yaw), focus_key='stage_a'),
+        )
+        self._stage_a_information_used = True
+        self._state = TwoStageRouteEpisodeState.REOBSERVATION
+
     def _explore_or_fallback(
         self,
         resolutions,
@@ -454,11 +475,17 @@ class TwoStageRouteEpisodeCoordinator:
             confidences=margins,
             region_config=self._region_config,
             allow_terminal_only=True,
+            allow_stage_a_only=not self._stage_a_information_used,
         )
         if plan.executable:
+            route_reason = (
+                'stage_a_information_route'
+                if plan.route_status == 'stage_a_only'
+                else 'terminal_target_attempted'
+            )
             return self._commit(
                 'fallback',
-                f'{reason}:terminal_target_attempted',
+                f'{reason}:{route_reason}',
                 resolutions,
                 plan,
             )

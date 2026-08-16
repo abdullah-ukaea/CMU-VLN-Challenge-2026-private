@@ -28,6 +28,7 @@ qmapnav:
 
     # Day 12.1 live two-stage instruction composition.
     instruction_initial_observations: 3
+    instruction_reobservation_observations: 3
     instruction_grid_half_extent_m: 10.0
     instruction_grid_resolution_m: 0.25
     instruction_grid_known_free_clearance_m: 0.25

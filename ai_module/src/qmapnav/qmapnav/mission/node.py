@@ -795,9 +795,13 @@ class QMapNavNode(Node):
             if self._instruction_projection_count < required:
                 return
         if self._instruction_state == 'reobservation' and not force:
+            required = int(self.get_parameter(
+                'instruction_reobservation_observations'
+            ).value)
             if (
                 self._instruction_projection_count
-                <= self._instruction_reobservation_start
+                - self._instruction_reobservation_start
+                < required
             ):
                 return
 
@@ -915,7 +919,12 @@ class QMapNavNode(Node):
         self._record_executor_events()
         self._record_semantic_stage_events()
         if executor.state is SemanticStageState.VERIFY_STAGE_A:
-            self._begin_instruction_stage_b((x, y))
+            if self._instruction_plan.route_status == 'stage_a_only':
+                self._finish_instruction_stage_a_information(
+                    (x, y, heading)
+                )
+            else:
+                self._begin_instruction_stage_b((x, y))
         elif executor.state is SemanticStageState.COMPLETE:
             self._instruction_state = 'complete'
             self._trace(
@@ -925,6 +934,32 @@ class QMapNavNode(Node):
                 terminal_status='complete',
             )
         return True
+
+    def _finish_instruction_stage_a_information(
+        self,
+        pose_xy_yaw: tuple[float, float, float],
+    ) -> None:
+        """Re-observe after a grounded stage A when stage B was missing."""
+        coordinator = self._instruction_episode
+        if coordinator is None:
+            self._instruction_state = 'terminal'
+            return
+        coordinator.notify_stage_a_information_arrived(
+            pose_xy_yaw=pose_xy_yaw
+        )
+        self._instruction_state = 'reobservation'
+        self._instruction_reobservation_start = (
+            self._instruction_projection_count
+        )
+        self._instruction_stage_executor = None
+        self._instruction_plan = None
+        self._instruction_grid = None
+        self._trace(
+            event='instruction_stage_a_information_complete',
+            selected_action='collect_terminal_reobservation',
+            selection_reason='stage_a_semantically_verified',
+            active_route_index=0,
+        )
 
     def _begin_instruction_stage_b(self, start_xy) -> None:
         """Plan stage B from the semantically verified stage-A pose."""
@@ -2716,6 +2751,7 @@ class QMapNavNode(Node):
         self.declare_parameter('numerical_final_commit_reserve_sec', 30.0)
         self.declare_parameter('numerical_maximum_verification_sec', 180.0)
         self.declare_parameter('instruction_initial_observations', 3)
+        self.declare_parameter('instruction_reobservation_observations', 3)
         self.declare_parameter('instruction_grid_half_extent_m', 10.0)
         self.declare_parameter('instruction_grid_resolution_m', 0.25)
         self.declare_parameter(

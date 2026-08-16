@@ -78,6 +78,7 @@ class SemanticStageExecutor:
         self._events: list[StageCompletionEvent] = []
         self._reason = ''
         self._terminal_only = plan.route_status == 'terminal_only'
+        self._stage_a_only = plan.route_status == 'stage_a_only'
 
     @property
     def state(self) -> SemanticStageState:
@@ -140,6 +141,8 @@ class SemanticStageExecutor:
         """
         if self._terminal_only:
             raise RuntimeError('a terminal-only route has no second stage')
+        if self._stage_a_only:
+            raise RuntimeError('a stage-A-only route has no second stage')
         if self._state is not SemanticStageState.VERIFY_STAGE_A:
             raise RuntimeError(
                 'stage B cannot begin before stage A is semantically verified'

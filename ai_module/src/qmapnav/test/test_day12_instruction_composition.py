@@ -278,6 +278,38 @@ def test_unresolved_first_stage_commits_bounded_terminal_fallback(
     assert len(node._waypoint_publisher.messages) == 1
 
 
+def test_unresolved_terminal_publishes_stage_a_information_route(
+    live_node,
+) -> None:
+    node, _, trace = live_node
+    node.reset_persistent_maps()
+    _add(node.object_map, 'partial_screen', 'projector_screen', (0.0, 0.0))
+    _add(node.object_map, 'partial_window', 'window', (-3.0, -3.0))
+    _add(node.object_map, 'partial_plant_near', 'potted_plant', (1.0, 0.0))
+    plant_id = _add(
+        node.object_map,
+        'partial_plant_far',
+        'potted_plant',
+        (5.0, 0.0),
+    )
+
+    _cause_live_instruction_decision(node)
+
+    assert node._instruction_plan.route_status == 'stage_a_only'
+    assert node._instruction_plan.stages[0].resolved_instance_id == str(
+        plant_id
+    )
+    assert len(node._waypoint_publisher.messages) == 1
+    goal = node._instruction_plan.stages[0].selected_goal_pose
+    node._on_pose(_pose(goal[0], goal[1]))
+    assert node._instruction_state == 'reobservation'
+    assert node._instruction_stage_executor is None
+    assert any(
+        event.event == 'instruction_stage_a_information_complete'
+        for event in trace.events
+    )
+
+
 def test_repeated_question_and_map_updates_do_not_recommit_route(
     live_node,
 ) -> None:

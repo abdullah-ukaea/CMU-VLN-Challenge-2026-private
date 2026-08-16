@@ -32,6 +32,7 @@ ROUTE_STATUSES = frozenset(
     {
         'blocked',
         'planned',
+        'stage_a_only',
         'terminal_only',
         'unresolved_stage',
         'unsupported_instruction',
@@ -127,6 +128,8 @@ class PerceivedRoutePlan:
             raise ValueError('a planned Day 11 route has exactly two stages')
         if self.route_status == 'terminal_only' and len(stages) != 1:
             raise ValueError('a terminal-only route has exactly one stage')
+        if self.route_status == 'stage_a_only' and len(stages) != 1:
+            raise ValueError('a stage-A-only route has exactly one stage')
         object.__setattr__(
             self, 'unresolved_stages', tuple(self.unresolved_stages)
         )
@@ -149,7 +152,9 @@ class PerceivedRoutePlan:
         so a terminal-only route is still executable even though an earlier
         stage never resolved.
         """
-        return self.route_status in {'planned', 'terminal_only'}
+        return self.route_status in {
+            'planned', 'stage_a_only', 'terminal_only'
+        }
 
     def to_dict(self) -> dict[str, object]:
         """Return the stable ``semantic_route_planned`` trace record."""
@@ -206,6 +211,7 @@ def plan_two_stage_route(
     scoring: GoalPoseScoringConfig | None = None,
     oracle_mode: bool = False,
     allow_terminal_only: bool = False,
+    allow_stage_a_only: bool = False,
 ) -> PerceivedRoutePlan:
     """
     Build an ordered two-stage route from already-resolved instances.
@@ -233,6 +239,22 @@ def plan_two_stage_route(
             # Partial credit: an unresolved intermediate landmark must never
             # stop the robot attempting the terminal target.
             return _terminal_only_plan(
+                steps,
+                resolved,
+                grid=grid,
+                start_xy=start_xy,
+                policy=policy,
+                scoring=scoring,
+                margins=margins,
+                unresolved=unresolved,
+                oracle_mode=oracle_mode,
+            )
+        first_entity = steps[0][2]
+        if allow_stage_a_only and first_entity in resolved:
+            # Route-first information gathering: honour the known first stage
+            # instead of remaining stationary when the terminal target has
+            # not yet produced stable 3D geometry.
+            return _stage_a_only_plan(
                 steps,
                 resolved,
                 grid=grid,
@@ -367,6 +389,60 @@ def _terminal_only_plan(
     return PerceivedRoutePlan(
         stages=(stage,),
         route_status='terminal_only',
+        unresolved_stages=unresolved,
+        total_path_length_m=goal.approach_cost_m,
+        oracle_mode=oracle_mode,
+    )
+
+
+def _stage_a_only_plan(
+    steps,
+    resolved,
+    *,
+    grid,
+    start_xy,
+    policy,
+    scoring,
+    margins,
+    unresolved,
+    oracle_mode,
+) -> PerceivedRoutePlan:
+    """Build one route-first stage that opens terminal re-observation."""
+    _, action, entity_id = steps[0]
+    box = perceived_box(resolved[entity_id])
+    region = perceived_near_region(
+        resolved[entity_id],
+        config=policy,
+        region_id=f'stage_0_near_{resolved[entity_id].instance_id}',
+    )
+    goal = select_goal_pose(
+        region,
+        box,
+        grid=grid,
+        start_xy=start_xy,
+        config=policy,
+        scoring=scoring,
+    )
+    if goal is None:
+        return PerceivedRoutePlan(
+            stages=(),
+            route_status='blocked',
+            unresolved_stages=unresolved,
+            oracle_mode=oracle_mode,
+        )
+    stage = PerceivedRouteStage(
+        stage_index=0,
+        semantic_action=action,
+        target_reference_id=entity_id,
+        resolved_instance_id=str(resolved[entity_id].instance_id),
+        target_region=region,
+        selected_goal_pose=goal.pose_xy_yaw,
+        confidence=_unit(margins.get(entity_id, 1.0)),
+        approach_path_length_m=goal.approach_cost_m,
+    )
+    return PerceivedRoutePlan(
+        stages=(stage,),
+        route_status='stage_a_only',
         unresolved_stages=unresolved,
         total_path_length_m=goal.approach_cost_m,
         oracle_mode=oracle_mode,
