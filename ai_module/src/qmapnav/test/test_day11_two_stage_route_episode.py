@@ -12,6 +12,7 @@ from qmapnav.mapping import StructuralMap
 from qmapnav.mission import TwoStageRouteEpisodeCoordinator
 from qmapnav.mission import TwoStageRouteEpisodeState
 from qmapnav.mission.two_stage_route_episode import StageResolution
+from qmapnav.navigation import PerceivedRoutePlan
 
 
 QUESTION = (
@@ -168,6 +169,37 @@ def test_missing_terminal_routes_to_resolved_stage_a_then_reobserves() -> None:
         time_remaining_sec=450.0,
     )
     assert second.action == 'abort'
+
+
+def test_blocked_stage_a_uses_safe_stage_a_observation_viewpoint(
+    monkeypatch,
+) -> None:
+    """A blocked strict annulus must not make the live robot stay silent."""
+    task = _task()
+    first, _ = _entities(task)
+    stage_a = make_instance(67, 'potted_plant', (2.0, 0.0, 0.5))
+    coordinator = TwoStageRouteEpisodeCoordinator(
+        resolver=_stub_resolver({first: stage_a})
+    )
+    coordinator.start(task)
+
+    monkeypatch.setattr(
+        'qmapnav.mission.two_stage_route_episode.plan_two_stage_route',
+        lambda *args, **kwargs: PerceivedRoutePlan((), 'blocked'),
+    )
+    action = coordinator.evaluate(
+        ObjectMap(),
+        StructuralMap(),
+        grid=open_grid(half_extent=10.0),
+        current_pose_xy_yaw=(0.0, 0.0, 0.0),
+        time_remaining_sec=500.0,
+    )
+
+    assert action.action == 'explore'
+    assert action.selection.selection_status == 'selected'
+    assert action.selection.selected.source == 'object_annulus'
+    assert action.selection.selected.target_instance_ids == ('67',)
+    assert coordinator.state is TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE
 
 
 def test_no_resolvable_stage_aborts_cleanly_without_deadlock() -> None:

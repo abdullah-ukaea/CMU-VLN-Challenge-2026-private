@@ -489,6 +489,49 @@ class TwoStageRouteEpisodeCoordinator:
                 resolutions,
                 plan,
             )
+        stage_a_instance = (
+            resolutions[0].instance
+            if resolutions and resolutions[0].instance is not None
+            else None
+        )
+        if (
+            status == 'available'
+            and not self._stage_a_information_used
+            and stage_a_instance is not None
+        ):
+            outcome = self._generate_stage_a_information_candidates(
+                stage_a_instance,
+                grid=grid,
+                current_pose_xy_yaw=current_pose_xy_yaw,
+            )
+            target_xy = (
+                float(stage_a_instance.centroid_xyz[0]),
+                float(stage_a_instance.centroid_xyz[1]),
+            )
+            scored = tuple(
+                score_candidate(
+                    candidate,
+                    grid=grid,
+                    need=need,
+                    config=self._scoring_config,
+                    target_xy=target_xy,
+                )
+                for candidate in outcome.candidates
+            )
+            selection = select_viewpoint(
+                scored, need, config=self._scoring_config
+            )
+            if selection.selection_status == 'selected':
+                self._state = TwoStageRouteEpisodeState.VIEWPOINT_ACTIVE
+                action = TwoStageRouteAction(
+                    'explore',
+                    f'{reason}:stage_a_observation_route',
+                    resolutions,
+                    selection=selection,
+                    need=need,
+                )
+                self._last_action = action
+                return action
         self._state = TwoStageRouteEpisodeState.ROUTE_COMMITTED
         action = TwoStageRouteAction(
             'abort', f'{reason}:{plan.route_status}', resolutions, need=need
@@ -571,6 +614,38 @@ class TwoStageRouteEpisodeCoordinator:
                 )
             )
         return outcome
+
+    def _generate_stage_a_information_candidates(
+        self,
+        instance: ObjectInstance,
+        *,
+        grid: OccupancyGrid2D,
+        current_pose_xy_yaw: tuple[float, float, float],
+    ) -> CandidateGenerationOutcome:
+        """Generate one bounded safe observation move around grounded A."""
+        costs = cost_field(
+            grid,
+            (current_pose_xy_yaw[0], current_pose_xy_yaw[1]),
+            clearance=self._generation_config.robot_clearance_m,
+        )
+        travel_limit = min(
+            self._budget.budget.max_single_viewpoint_distance_m,
+            self._budget.remaining_distance_m,
+        )
+        return generate_object_annulus_viewpoints(
+            (
+                float(instance.centroid_xyz[0]),
+                float(instance.centroid_xyz[1]),
+            ),
+            grid=grid,
+            current_pose_xy_yaw=current_pose_xy_yaw,
+            prefix=f'stage_a_information_{instance.instance_id}',
+            config=self._generation_config,
+            visited=self._visited,
+            max_travel_m=travel_limit,
+            target_instance_ids=(str(instance.instance_id),),
+            costs=costs,
+        )
 
     def _build_need(
         self,
