@@ -22,20 +22,10 @@ import numpy as np
 from qmapnav.evaluation.dataset_loader import load_development_scenes
 from qmapnav.evaluation.ground_truth import OracleObject
 from qmapnav.evaluation.ground_truth import OracleScene
-from qmapnav.evaluation.object_reference_contracts import (
-    build_object_reference_manifest,
-)
-from qmapnav.evaluation.object_reference_contracts import ObjectReferenceCase
-from qmapnav.evaluation.object_reference_contracts import (
-    ObjectReferenceEpisodeResult,
-)
-from qmapnav.evaluation.object_reference_contracts import StageEvidence
-from qmapnav.evaluation.object_reference_failures import classify_primary_failure
-from qmapnav.evaluation.object_reference_failures import FixCandidate
-from qmapnav.evaluation.object_reference_failures import rank_fix_candidates
 from qmapnav.evaluation.object_reference_runner import (
     ObjectReferenceBenchmarkRunner,
 )
+from qmapnav.evaluation.oracle import solve_object_reference
 from qmapnav.language import parse_question
 from qmapnav.mapping.geometry_evaluation import aabb_iou_3d
 from qmapnav.mapping.geometry_evaluation import ReferenceUprightBox
@@ -50,10 +40,16 @@ from qmapnav.mapping.object_candidate import ObjectCandidate3D
 from qmapnav.mapping.object_map import ObjectMap
 from qmapnav.mapping.structural_map import StructuralMap
 from qmapnav.mapping.viewpoint_observation import ViewpointObservation
+from qmapnav.mission.episode_reports import build_object_reference_manifest
+from qmapnav.mission.episode_reports import classify_primary_failure
+from qmapnav.mission.episode_reports import FixCandidate
+from qmapnav.mission.episode_reports import ObjectReferenceCase
+from qmapnav.mission.episode_reports import ObjectReferenceEpisodeResult
+from qmapnav.mission.episode_reports import rank_fix_candidates
+from qmapnav.mission.episode_reports import StageEvidence
 from qmapnav.mission.marker_adapter import object_instance_to_marker_spec
 from qmapnav.mission.marker_adapter import validate_marker_spec
 from qmapnav.perception.vocabulary import detector_classes_from_task_specification
-from qmapnav.reasoning import solve_object_reference
 from qmapnav.reasoning.colour_types import ColourEstimate
 from qmapnav.reasoning.object_reference_solver import (
     resolve_object_reference_from_maps,

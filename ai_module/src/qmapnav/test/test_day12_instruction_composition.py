@@ -8,7 +8,7 @@ from day11_helpers import make_observation
 from day11_helpers import open_grid
 import numpy as np
 import pytest
-from qmapnav.evaluation import InMemoryTraceRecorder
+from qmapnav.common.decision_trace import InMemoryTraceRecorder
 from qmapnav.language import parse_question
 from qmapnav.mapping import ObjectMap
 from qmapnav.mapping import StructuralMap

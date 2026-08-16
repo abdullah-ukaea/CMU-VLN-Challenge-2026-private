@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 from day12_helpers import numerical_result
 import pytest
-from qmapnav.evaluation import InMemoryTraceRecorder
+from qmapnav.common.decision_trace import InMemoryTraceRecorder
 from qmapnav.mission.numerical_output_adapter import NumericalOutputAdapter
 from qmapnav.mission.numerical_output_adapter import OFFICIAL_NUMERICAL_TOPIC
 

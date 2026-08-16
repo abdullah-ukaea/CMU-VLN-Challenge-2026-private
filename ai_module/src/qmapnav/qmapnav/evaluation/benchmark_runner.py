@@ -18,13 +18,13 @@ from qmapnav.evaluation.metrics import relation_metrics
 from qmapnav.evaluation.metrics import RelationKey
 from qmapnav.evaluation.metrics import semantic_route_metric
 from qmapnav.evaluation.metrics import TimingMetric
+from qmapnav.evaluation.oracle import geometric_relation_holds
+from qmapnav.evaluation.oracle import OracleReasoningError
+from qmapnav.evaluation.oracle import solve_numerical
+from qmapnav.evaluation.oracle import solve_object_reference
+from qmapnav.evaluation.oracle_route_planner import plan_semantic_route
+from qmapnav.evaluation.oracle_route_planner import RoutePlanningError
 from qmapnav.language import parse_question
-from qmapnav.reasoning import geometric_relation_holds
-from qmapnav.reasoning import OracleReasoningError
-from qmapnav.reasoning import plan_semantic_route
-from qmapnav.reasoning import RoutePlanningError
-from qmapnav.reasoning import solve_numerical
-from qmapnav.reasoning import solve_object_reference
 
 
 BENCHMARK_SCHEMA_VERSION = 1

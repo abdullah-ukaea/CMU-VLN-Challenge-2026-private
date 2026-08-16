@@ -5,10 +5,10 @@ from threading import Event
 
 import pytest
 
-from qmapnav.evaluation import DecisionTraceEvent
-from qmapnav.evaluation import InMemoryTraceRecorder
-from qmapnav.evaluation import JsonlDecisionTraceRecorder
-from qmapnav.evaluation import TRACE_SCHEMA_VERSION
+from qmapnav.common.decision_trace import DecisionTraceEvent
+from qmapnav.common.decision_trace import InMemoryTraceRecorder
+from qmapnav.common.decision_trace import JsonlDecisionTraceRecorder
+from qmapnav.common.decision_trace import TRACE_SCHEMA_VERSION
 
 
 def _event(**overrides: object) -> DecisionTraceEvent:

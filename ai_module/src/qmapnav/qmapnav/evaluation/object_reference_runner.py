@@ -10,18 +10,12 @@ from time import perf_counter
 from typing import Callable
 from uuid import uuid4
 
-from qmapnav.evaluation.object_reference_contracts import manifest_digest
-from qmapnav.evaluation.object_reference_contracts import ObjectReferenceCase
-from qmapnav.evaluation.object_reference_contracts import (
-    ObjectReferenceEpisodeResult,
-)
-from qmapnav.evaluation.object_reference_contracts import (
-    QUICK_OBJECT_REFERENCE_IDS,
-)
-from qmapnav.evaluation.object_reference_contracts import StageEvidence
-from qmapnav.evaluation.object_reference_failures import (
-    classify_primary_failure,
-)
+from qmapnav.mission.episode_reports import classify_primary_failure
+from qmapnav.mission.episode_reports import manifest_digest
+from qmapnav.mission.episode_reports import ObjectReferenceCase
+from qmapnav.mission.episode_reports import ObjectReferenceEpisodeResult
+from qmapnav.mission.episode_reports import QUICK_OBJECT_REFERENCE_IDS
+from qmapnav.mission.episode_reports import StageEvidence
 
 
 CaseExecutor = Callable[

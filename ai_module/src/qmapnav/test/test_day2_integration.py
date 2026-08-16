@@ -6,7 +6,7 @@ from time import monotonic
 from geometry_msgs.msg import Pose2D
 from nav_msgs.msg import Odometry
 import pytest
-from qmapnav.evaluation import InMemoryTraceRecorder
+from qmapnav.common.decision_trace import InMemoryTraceRecorder
 from qmapnav.language import parse_question
 from qmapnav.mapping import RegisteredScanAccumulator
 from qmapnav.mission.node import QMapNavNode

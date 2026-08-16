@@ -1,10 +1,10 @@
 """Tests for explicit path-level between gates and physical rejection."""
 
 from day9_helpers import geometry
+from qmapnav.mapping.grid_planning import PlanningGrid
 from qmapnav.reasoning.corridor_evaluation import CorridorConfig
 from qmapnav.reasoning.corridor_evaluation import evaluate_corridor
 from qmapnav.reasoning.corridor_evaluation import rank_corridors
-from qmapnav.reasoning.route_planner import PlanningGrid
 
 
 def _grid(occupied=()):

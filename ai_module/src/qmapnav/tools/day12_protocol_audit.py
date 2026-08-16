@@ -6,7 +6,7 @@ import json
 from math import isfinite
 from pathlib import Path
 
-from qmapnav.evaluation import InMemoryTraceRecorder
+from qmapnav.common.decision_trace import InMemoryTraceRecorder
 from qmapnav.mission.marker_adapter import OFFICIAL_MARKER_TOPIC
 from qmapnav.mission.numerical_output_adapter import OFFICIAL_NUMERICAL_TOPIC
 

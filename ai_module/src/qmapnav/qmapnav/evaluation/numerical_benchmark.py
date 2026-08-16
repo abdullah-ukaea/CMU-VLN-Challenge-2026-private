@@ -13,9 +13,9 @@ from qmapnav.counting import CountStabilityMachine
 from qmapnav.counting import resolve_numerical_from_maps
 from qmapnav.evaluation.dataset_loader import load_development_scenes
 from qmapnav.evaluation.object_reference_replay import _annotated_object_map
+from qmapnav.evaluation.oracle import solve_numerical
 from qmapnav.language import parse_question
 from qmapnav.mapping import StructuralMap
-from qmapnav.reasoning import solve_numerical
 
 
 NUMERICAL_FAILURE_CATEGORIES = frozenset({

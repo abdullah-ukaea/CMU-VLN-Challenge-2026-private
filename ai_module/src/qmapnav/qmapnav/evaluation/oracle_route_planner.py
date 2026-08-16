@@ -1,16 +1,19 @@
 """Ground-truth semantic-region resolution and deterministic grid planning."""
 
 from dataclasses import dataclass
-from heapq import heappop, heappush
 from itertools import combinations, product
-from math import ceil, floor, hypot, isfinite, sqrt
+from math import ceil, hypot, isfinite
 
 from qmapnav.common import RouteConstraint
 from qmapnav.common import RouteStep
 from qmapnav.common import TaskSpecification
 from qmapnav.evaluation.ground_truth import OracleObject
 from qmapnav.evaluation.ground_truth import OracleScene
-from qmapnav.reasoning.oracle import resolve_task_entities
+from qmapnav.evaluation.oracle import resolve_task_entities
+from qmapnav.mapping.grid_planning import GridCell
+from qmapnav.mapping.grid_planning import GridPlanningError
+from qmapnav.mapping.grid_planning import PlanningGrid
+from qmapnav.mapping.grid_planning import shortest_path_to_regions
 from qmapnav.reasoning.semantic_geometry import make_approach_region
 from qmapnav.reasoning.semantic_geometry import make_between_gate
 from qmapnav.reasoning.semantic_geometry import make_near_region
@@ -19,7 +22,6 @@ from qmapnav.reasoning.semantic_geometry import Point2D
 from qmapnav.reasoning.semantic_geometry import SemanticRegion
 
 
-GridCell = tuple[int, int]
 _NON_OBSTACLE_CLASSES = frozenset(
     {
         'carpet',
@@ -86,88 +88,6 @@ class OraclePlannerConfig:
             or self.maximum_grid_cells <= 0
         ):
             raise ValueError('maximum_grid_cells must be a positive integer')
-
-
-@dataclass(frozen=True)
-class PlanningGrid:
-    """A finite row-major occupancy grid in the oracle map frame."""
-
-    resolution: float
-    origin_xy: Point2D
-    width: int
-    height: int
-    occupied: frozenset[GridCell]
-
-    def __post_init__(self) -> None:
-        if not isfinite(self.resolution) or self.resolution <= 0.0:
-            raise ValueError('resolution must be finite and positive')
-        if len(self.origin_xy) != 2 or not all(
-            isfinite(value) for value in self.origin_xy
-        ):
-            raise ValueError('origin_xy must contain two finite coordinates')
-        if self.width <= 0 or self.height <= 0:
-            raise ValueError('grid dimensions must be positive')
-        occupied = frozenset(self.occupied)
-        if any(not self.in_bounds(cell) for cell in occupied):
-            raise ValueError('occupied cells must lie inside the grid')
-        object.__setattr__(self, 'occupied', occupied)
-
-    def in_bounds(self, cell: GridCell) -> bool:
-        """Return whether a cell index lies within this grid."""
-        x_index, y_index = cell
-        return 0 <= x_index < self.width and 0 <= y_index < self.height
-
-    def is_free(self, cell: GridCell) -> bool:
-        """Return whether a cell is in bounds and unoccupied."""
-        return self.in_bounds(cell) and cell not in self.occupied
-
-    def point_to_cell(self, point: Point2D) -> GridCell:
-        """Convert a map-frame point to its containing grid cell."""
-        return (
-            floor((point[0] - self.origin_xy[0]) / self.resolution),
-            floor((point[1] - self.origin_xy[1]) / self.resolution),
-        )
-
-    def cell_centre(self, cell: GridCell) -> Point2D:
-        """Convert a grid cell to its map-frame centre point."""
-        return (
-            self.origin_xy[0] + (cell[0] + 0.5) * self.resolution,
-            self.origin_xy[1] + (cell[1] + 0.5) * self.resolution,
-        )
-
-    def with_blocked_regions(
-        self,
-        regions: tuple[SemanticRegion, ...],
-    ) -> 'PlanningGrid':
-        """Return a copy with all usable cells inside regions marked blocked."""
-        blocked = set(self.occupied)
-        for region in regions:
-            blocked.update(_cells_in_region(self, region, require_free=False))
-        return PlanningGrid(
-            resolution=self.resolution,
-            origin_xy=self.origin_xy,
-            width=self.width,
-            height=self.height,
-            occupied=frozenset(blocked),
-        )
-
-    def with_cleared_regions(
-        self,
-        regions: tuple[SemanticRegion, ...],
-    ) -> 'PlanningGrid':
-        """Clear cells in trusted semantic corridors from conservative OBBs."""
-        cleared = set(self.occupied)
-        for region in regions:
-            cleared.difference_update(
-                _cells_in_region(self, region, require_free=False)
-            )
-        return PlanningGrid(
-            resolution=self.resolution,
-            origin_xy=self.origin_xy,
-            width=self.width,
-            height=self.height,
-            occupied=frozenset(cleared),
-        )
 
 
 @dataclass(frozen=True)
@@ -282,94 +202,6 @@ def build_planning_grid(
         height=height,
         occupied=frozenset(occupied),
     )
-
-
-def _cells_in_region(
-    grid: PlanningGrid,
-    region: SemanticRegion,
-    *,
-    require_free: bool,
-) -> tuple[GridCell, ...]:
-    x_range, y_range = _cell_range_for_bounds(grid, region.polygon.bounds)
-    cells = []
-    for x_index in x_range:
-        for y_index in y_range:
-            cell = (x_index, y_index)
-            if require_free and not grid.is_free(cell):
-                continue
-            if region.contains(grid.cell_centre(cell)):
-                cells.append(cell)
-    return tuple(cells)
-
-
-def _neighbours(grid: PlanningGrid, cell: GridCell):
-    x_index, y_index = cell
-    for delta_x, delta_y in (
-        (-1, -1),
-        (-1, 0),
-        (-1, 1),
-        (0, -1),
-        (0, 1),
-        (1, -1),
-        (1, 0),
-        (1, 1),
-    ):
-        neighbour = (x_index + delta_x, y_index + delta_y)
-        if not grid.is_free(neighbour):
-            continue
-        if delta_x and delta_y:
-            if not grid.is_free((x_index + delta_x, y_index)):
-                continue
-            if not grid.is_free((x_index, y_index + delta_y)):
-                continue
-            cost = sqrt(2.0)
-        else:
-            cost = 1.0
-        yield neighbour, cost
-
-
-def _reconstruct_path(
-    parents: dict[GridCell, GridCell],
-    goal: GridCell,
-) -> tuple[GridCell, ...]:
-    path = [goal]
-    while path[-1] in parents:
-        path.append(parents[path[-1]])
-    path.reverse()
-    return tuple(path)
-
-
-def _shortest_path_to_regions(
-    grid: PlanningGrid,
-    start: GridCell,
-    regions: tuple[SemanticRegion, ...],
-) -> tuple[tuple[GridCell, ...], SemanticRegion]:
-    goals: dict[GridCell, int] = {}
-    for index, region in enumerate(regions):
-        for cell in _cells_in_region(grid, region, require_free=True):
-            goals.setdefault(cell, index)
-    if not goals:
-        raise RoutePlanningError('semantic region contains no free grid cell')
-    if start in goals:
-        return (start,), regions[goals[start]]
-
-    queue: list[tuple[float, GridCell]] = [(0.0, start)]
-    costs = {start: 0.0}
-    parents: dict[GridCell, GridCell] = {}
-    while queue:
-        cost, cell = heappop(queue)
-        if cost != costs.get(cell):
-            continue
-        if cell in goals:
-            return _reconstruct_path(parents, cell), regions[goals[cell]]
-        for neighbour, step_cost in _neighbours(grid, cell):
-            new_cost = cost + step_cost
-            if new_cost >= costs.get(neighbour, float('inf')):
-                continue
-            costs[neighbour] = new_cost
-            parents[neighbour] = cell
-            heappush(queue, (new_cost, neighbour))
-    raise RoutePlanningError('no collision-free path reaches the semantic region')
 
 
 def _object_pairs(
@@ -647,12 +479,12 @@ def plan_semantic_route(
                 'object-box occupancy inside the annotated corridor'
             )
         try:
-            segment, selected_region = _shortest_path_to_regions(
+            segment, selected_region = shortest_path_to_regions(
                 planning_grid,
                 current,
                 options,
             )
-        except RoutePlanningError as exc:
+        except GridPlanningError as exc:
             raise RoutePlanningError(
                 f'route step {step.step_index}: {exc}'
             ) from exc

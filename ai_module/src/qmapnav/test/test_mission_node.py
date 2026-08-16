@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import numpy as np
 import pytest
-from qmapnav.evaluation import InMemoryTraceRecorder
+from qmapnav.common.decision_trace import InMemoryTraceRecorder
 from qmapnav.language import parse_question
 from qmapnav.mapping import RegisteredScanAccumulator
 from qmapnav.navigation import Waypoint2D

@@ -4,6 +4,7 @@ import csv
 import json
 
 from day9_helpers import candidate, geometry
+from qmapnav.mapping.grid_planning import PlanningGrid
 from qmapnav.reasoning.ambiguity import assess_ambiguity
 from qmapnav.reasoning.corridor_evaluation import CorridorConfig
 from qmapnav.reasoning.corridor_evaluation import evaluate_corridor
@@ -12,7 +13,6 @@ from qmapnav.reasoning.hypothesis_scoring import rank_complete_hypotheses
 from qmapnav.reasoning.reasoning_visualisation import save_reasoning_diagnostics
 from qmapnav.reasoning.resolution_contracts import CandidateHypothesis
 from qmapnav.reasoning.resolution_contracts import ConstraintEvaluation
-from qmapnav.reasoning.route_planner import PlanningGrid
 from qmapnav.reasoning.spatial_relations import evaluate_between
 from qmapnav.reasoning.spatial_relations import rank_distances
 

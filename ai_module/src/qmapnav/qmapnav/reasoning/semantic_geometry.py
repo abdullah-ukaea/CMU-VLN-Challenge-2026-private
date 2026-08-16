@@ -2,8 +2,16 @@
 
 from dataclasses import dataclass
 from math import atan2, cos, hypot, isfinite, sin
+from typing import Protocol
 
-from qmapnav.evaluation.ground_truth import OracleObject
+
+class _SemanticObject(Protocol):
+    """Structural object data required by floor-plane geometry helpers."""
+
+    object_id: str
+    centre_xyz: tuple[float, float, float]
+    dimensions_xyz: tuple[float, float, float]
+    yaw: float
 
 
 Point2D = tuple[float, float]
@@ -176,7 +184,10 @@ def _oriented_rectangle(
     )
 
 
-def object_footprint(obj: OracleObject, inflation: float = 0.0) -> Polygon2D:
+def object_footprint(
+    obj: _SemanticObject,
+    inflation: float = 0.0,
+) -> Polygon2D:
     """Project an oracle object's oriented 3D box onto the XY floor plane."""
     if not isfinite(inflation) or inflation < 0.0:
         raise ValueError('inflation must be finite and non-negative')
@@ -190,7 +201,7 @@ def object_footprint(obj: OracleObject, inflation: float = 0.0) -> Polygon2D:
 
 
 def make_near_region(
-    obj: OracleObject,
+    obj: _SemanticObject,
     min_distance: float = 0.6,
     max_distance: float = 1.8,
     *,
@@ -213,7 +224,7 @@ def make_near_region(
 
 
 def make_approach_region(
-    obj: OracleObject,
+    obj: _SemanticObject,
     minimum_clearance: float = 0.45,
     maximum_distance: float = 1.25,
     *,
@@ -238,7 +249,7 @@ def make_approach_region(
     )
 
 
-def _support_radius(obj: OracleObject, direction: Point2D) -> float:
+def _support_radius(obj: _SemanticObject, direction: Point2D) -> float:
     dx, dy = direction
     local_x = (cos(obj.yaw), sin(obj.yaw))
     local_y = (-sin(obj.yaw), cos(obj.yaw))
@@ -250,8 +261,8 @@ def _support_radius(obj: OracleObject, direction: Point2D) -> float:
 
 
 def make_between_gate(
-    object_a: OracleObject,
-    object_b: OracleObject,
+    object_a: _SemanticObject,
+    object_b: _SemanticObject,
     *,
     robot_diameter: float = 0.55,
     clearance: float = 0.10,

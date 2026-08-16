@@ -8,18 +8,18 @@ from qmapnav.evaluation import ColourAttribute
 from qmapnav.evaluation import OracleObject
 from qmapnav.evaluation import OracleRelation
 from qmapnav.evaluation import OracleScene
+from qmapnav.evaluation.oracle import OracleReasoningError
+from qmapnav.evaluation.oracle import solve_numerical
+from qmapnav.evaluation.oracle import solve_object_reference
+from qmapnav.evaluation.oracle_route_planner import build_planning_grid
+from qmapnav.evaluation.oracle_route_planner import OraclePlannerConfig
+from qmapnav.evaluation.oracle_route_planner import plan_semantic_route
+from qmapnav.evaluation.oracle_route_planner import RoutePlanningError
 from qmapnav.language import parse_question
-from qmapnav.reasoning import build_planning_grid
 from qmapnav.reasoning import make_approach_region
 from qmapnav.reasoning import make_between_gate
 from qmapnav.reasoning import make_near_region
 from qmapnav.reasoning import object_footprint
-from qmapnav.reasoning import OraclePlannerConfig
-from qmapnav.reasoning import OracleReasoningError
-from qmapnav.reasoning import plan_semantic_route
-from qmapnav.reasoning import RoutePlanningError
-from qmapnav.reasoning import solve_numerical
-from qmapnav.reasoning import solve_object_reference
 
 
 def _object(

@@ -8,8 +8,8 @@ from typing import Sequence
 import cv2
 import numpy as np
 
+from qmapnav.mapping.grid_planning import PlanningGrid
 from qmapnav.reasoning.resolution_contracts import PairHypothesis
-from qmapnav.reasoning.route_planner import PlanningGrid
 from qmapnav.reasoning.support_geometry import footprint_metrics
 from qmapnav.reasoning.support_geometry import SupportGeometry
 
