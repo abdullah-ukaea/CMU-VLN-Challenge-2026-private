@@ -74,7 +74,6 @@ def test_node_uses_only_permitted_official_topics(node: object) -> None:
         '/qmapnav/debug/relations'
     )
     assert node._official_marker_publisher.topic_name == '/selected_object_marker'
-    assert not node._final_marker_guard.committed
     assert not node._final_object_answer_guard.committed
 
 

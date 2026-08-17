@@ -14,7 +14,6 @@ from qmapnav.mapping.structural_map import StructuralAnchor
 from qmapnav.mapping.structural_map import StructuralAssociationEvent
 from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import candidate_to_marker_spec
-from qmapnav.mission.marker_adapter import FinalMarkerGuard
 from qmapnav.mission.marker_adapter import FinalObjectAnswerGuard
 from qmapnav.mission.marker_adapter import marker_spec_to_ros
 from qmapnav.mission.marker_adapter import object_instance_to_marker_spec
@@ -66,9 +65,7 @@ def _candidate() -> ObjectCandidate3D:
 
 def test_marker_spec_and_ros_message_use_map_obb_contract() -> None:
     candidate = _candidate()
-    spec = candidate_to_marker_spec(
-        candidate, marker_id=7, namespace='debug', official=False
-    )
+    spec = candidate_to_marker_spec(candidate, marker_id=7, namespace='debug')
     message = marker_spec_to_ros(spec)
 
     assert spec.frame_id == 'map'
@@ -87,20 +84,6 @@ def test_candidate_array_clears_stale_markers_and_never_marks_official() -> None
 
     assert messages.markers[0].action == messages.markers[0].DELETEALL
     assert messages.markers[1].ns == 'qmapnav_candidates'
-
-
-def test_final_marker_guard_publishes_once_only_when_explicitly_committed() -> None:
-    published = []
-    guard = FinalMarkerGuard(published.append)
-
-    assert not guard.committed
-    spec = guard.commit(_candidate())
-
-    assert guard.committed
-    assert spec.official
-    assert len(published) == 1
-    with pytest.raises(RuntimeError, match='already committed'):
-        guard.commit(_candidate())
 
 
 def _instance(orientation_confidence=0.8) -> ObjectInstance:

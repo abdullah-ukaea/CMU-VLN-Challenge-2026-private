@@ -1,4 +1,4 @@
-"""Separated candidate and guarded official ROS marker adapters."""
+"""Debug marker and guarded official ROS marker adapters."""
 
 from dataclasses import dataclass
 from math import cos, isfinite, sin
@@ -65,24 +65,20 @@ def candidate_to_marker_spec(
     *,
     marker_id: int,
     namespace: str,
-    official: bool,
     minimum_dimension_m: float = 0.05,
 ) -> MarkerSpec:
-    """Convert one candidate to a map-frame upright CUBE specification."""
+    """Convert one debug candidate to a map-frame upright CUBE specification."""
     if not isfinite(minimum_dimension_m) or minimum_dimension_m <= 0.0:
         raise ValueError('minimum_dimension_m must be positive')
     yaw = candidate.obb_yaw_rad
     dimensions = np.maximum(candidate.obb_dimensions_xyz, minimum_dimension_m)
     confidence = candidate.geometry_confidence
-    if official:
-        colour = (0.0, 0.2, 1.0, 0.65)
-    else:
-        colour = (
-            float(1.0 - confidence),
-            float(confidence),
-            float(candidate.orientation_confidence),
-            0.35 + 0.45 * confidence,
-        )
+    colour = (
+        float(1.0 - confidence),
+        float(confidence),
+        float(candidate.orientation_confidence),
+        0.35 + 0.45 * confidence,
+    )
     return MarkerSpec(
         frame_id='map',
         timestamp_ns=candidate.source_timestamp_ns,
@@ -92,7 +88,7 @@ def candidate_to_marker_spec(
         orientation_xyzw=(0.0, 0.0, sin(yaw / 2.0), cos(yaw / 2.0)),
         dimensions_xyz=tuple(float(value) for value in dimensions),
         colour_rgba=colour,
-        official=official,
+        official=False,
     )
 
 
@@ -264,7 +260,6 @@ def candidate_marker_array(
             candidate,
             marker_id=marker_id,
             namespace=namespace,
-            official=False,
         )
         messages.markers.append(marker_spec_to_ros(spec))
     return messages
@@ -539,42 +534,6 @@ def relation_marker_array(
     return output
 
 
-class FinalMarkerGuard:
-    """Allow one explicit official marker commitment per episode."""
-
-    def __init__(
-        self,
-        publish: Callable[[object], None],
-        *,
-        namespace: str = 'qmapnav_selected_object',
-    ) -> None:
-        self._publish = publish
-        self._namespace = namespace
-        self._committed = False
-        self._lock = Lock()
-
-    @property
-    def committed(self) -> bool:
-        """Return whether an official answer was already published."""
-        with self._lock:
-            return self._committed
-
-    def commit(self, candidate: ObjectCandidate3D, *, marker_id: int = 0) -> MarkerSpec:
-        """Publish exactly one official marker from an explicitly chosen candidate."""
-        with self._lock:
-            if self._committed:
-                raise RuntimeError('final object marker already committed')
-            spec = candidate_to_marker_spec(
-                candidate,
-                marker_id=marker_id,
-                namespace=self._namespace,
-                official=True,
-            )
-            self._publish(marker_spec_to_ros(spec))
-            self._committed = True
-            return spec
-
-
 @dataclass(frozen=True)
 class FinalObjectAnswer:
     """One persistent marker and matching object-centre waypoint commitment."""
@@ -650,7 +609,6 @@ __all__ = [
     'candidate_marker_array',
     'candidate_to_marker_spec',
     'CANDIDATE_MARKER_TOPIC',
-    'FinalMarkerGuard',
     'FinalObjectAnswer',
     'FinalObjectAnswerGuard',
     'MarkerSpec',

@@ -79,7 +79,6 @@ from qmapnav.mission.episode_reports import task_specification_data
 from qmapnav.mission.instruction_episode import InstructionEpisodeCoordinator
 from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import CANDIDATE_MARKER_TOPIC
-from qmapnav.mission.marker_adapter import FinalMarkerGuard
 from qmapnav.mission.marker_adapter import FinalObjectAnswerGuard
 from qmapnav.mission.marker_adapter import object_map_marker_array
 from qmapnav.mission.marker_adapter import OBJECT_MAP_MARKER_TOPIC
@@ -327,9 +326,6 @@ class QMapNavNode(Node):
         self._numerical_output_adapter = NumericalOutputAdapter(
             self._numerical_publisher.publish
         )
-        self._final_marker_guard = FinalMarkerGuard(
-            self._official_marker_publisher.publish
-        )
         self._final_object_answer_guard = FinalObjectAnswerGuard(
             self._official_marker_publisher.publish,
             self._publish_matching_object_waypoint,
@@ -445,21 +441,6 @@ class QMapNavNode(Node):
         self._relation_graph.recompute([])
         self._structural_frame_count = 0
         self._persistent_path_xy.clear()
-
-    def publish_final_object_candidate(
-        self,
-        candidate: ObjectCandidate3D,
-    ) -> None:
-        """Explicitly commit one externally selected candidate as official."""
-        if self._final_object_answer_guard.committed:
-            raise RuntimeError('final object answer already committed')
-        self._final_marker_guard.commit(candidate)
-        self._trace(
-            event='official_object_marker_committed',
-            selected_action='publish_selected_object_marker',
-            selection_reason='explicit_external_candidate_commit',
-            details={'candidate_id': candidate.candidate_id},
-        )
 
     def _advance_object_reference_episode(self) -> None:
         """Rank after bounded evidence and optionally reobserve exactly once."""
@@ -661,8 +642,6 @@ class QMapNavNode(Node):
         marker_spec = None
         if selected is not None and selected.isdigit():
             try:
-                if self._final_marker_guard.committed:
-                    raise RuntimeError('final object marker already committed')
                 instance = self._object_map.get(int(selected))
                 answer = self._final_object_answer_guard.commit(
                     instance,
