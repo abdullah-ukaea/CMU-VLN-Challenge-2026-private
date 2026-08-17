@@ -25,11 +25,6 @@ from qmapnav.mapping.lidar_camera_projection import ProjectionResult
 from qmapnav.mapping.lifting_pipeline import combine_projection_results
 from qmapnav.mapping.lifting_pipeline import LiftingFrame
 from qmapnav.mapping.lifting_pipeline import LiftingPipeline
-from qmapnav.mapping.lifting_regression import DAY6_REGRESSION_CATEGORIES
-from qmapnav.mapping.lifting_regression import LiftingRegressionMetrics
-from qmapnav.mapping.lifting_regression import replay_lifting_regression_case
-from qmapnav.mapping.lifting_regression import save_lifting_regression_case
-from qmapnav.mapping.lifting_regression import verify_lifting_regression_checksums
 from qmapnav.mapping.object_association import AssociationDecision
 from qmapnav.mapping.object_association import AssociationScore
 from qmapnav.mapping.object_association import canonicalize_class_name
@@ -54,12 +49,6 @@ from qmapnav.mapping.projection_pipeline import ProjectionFrame
 from qmapnav.mapping.projection_pipeline import ProjectionPipeline
 from qmapnav.mapping.projection_quality import DetectionProjection
 from qmapnav.mapping.projection_quality import ProjectionQualityConfig
-from qmapnav.mapping.projection_regression import DAY5_REGRESSION_CATEGORIES
-from qmapnav.mapping.projection_regression import load_projection_regression_case
-from qmapnav.mapping.projection_regression import ProjectionRegressionMetrics
-from qmapnav.mapping.projection_regression import replay_projection_regression_case
-from qmapnav.mapping.projection_regression import save_projection_regression_case
-from qmapnav.mapping.projection_regression import verify_projection_regression_checksums
 from qmapnav.mapping.projection_worker import BoundedProjectionWorker
 from qmapnav.mapping.ray_wall_intersection import intersect_ray_with_wall
 from qmapnav.mapping.ray_wall_intersection import RayWallIntersection
@@ -115,8 +104,6 @@ __all__ = [
     'DenseScanSnapshot',
     'ProjectionPipeline',
     'LiftingPipeline',
-    'DAY5_REGRESSION_CATEGORIES',
-    'DAY6_REGRESSION_CATEGORIES',
     'DetectionProjection',
     'DepthFilterConfig',
     'estimate_upright_obb',
@@ -128,7 +115,6 @@ __all__ = [
     'LiftingCounts',
     'LiftingFrame',
     'LiftingResult',
-    'LiftingRegressionMetrics',
     'intersect_ray_with_wall',
     'merge_wall_candidates',
     'ObjectCandidate3D',
@@ -145,17 +131,11 @@ __all__ = [
     'ProjectionDiagnostics',
     'ProjectionFrame',
     'ProjectionQualityConfig',
-    'ProjectionRegressionMetrics',
     'ProjectionResult',
     'ProjectionSynchronizer',
     'RayWallIntersection',
     'ReferenceUprightBox',
     'RegisteredScanAccumulator',
-    'load_projection_regression_case',
-    'replay_projection_regression_case',
-    'replay_lifting_regression_case',
-    'save_lifting_regression_case',
-    'save_projection_regression_case',
     'ScanAccumulatorConfig',
     'ScanAccumulatorStats',
     'score_candidate_instance',
@@ -170,8 +150,6 @@ __all__ = [
     'transform_camera_ray_to_map',
     'UprightOrientedBox',
     'upright_box_iou_3d',
-    'verify_lifting_regression_checksums',
-    'verify_projection_regression_checksums',
     'ViewpointObservation',
     'WallCandidate',
     'WallExtractionConfig',

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from qmapnav.common import TaskSpecification
+from qmapnav.perception.vocabulary import detector_classes_from_task_specification
 
 
 OBJECT_REFERENCE_SCHEMA_VERSION = '1.0'
@@ -580,6 +581,186 @@ def classify_primary_failure(
     return FailureClassification(None, None, None)
 
 
+def _atomic_write_json(path: Path, payload: object) -> None:
+    """Write one bounded diagnostic JSON file without partial replacement."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'.{path.name}.tmp')
+    try:
+        with temporary.open('w', encoding='utf-8') as stream:
+            json.dump(payload, stream, indent=2, sort_keys=True)
+            stream.write('\n')
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def write_object_reference_result(
+    node,
+    resolution,
+    marker_spec,
+    marker_errors,
+    protocol_valid,
+) -> None:
+    task = node._task_specification
+    target = task.entities[0]
+    generated = resolution.candidate_generation if resolution else {}
+    target_generated = generated.get(target.entity_id)
+    target_count = (
+        len(target_generated.retained) if target_generated else 0
+    )
+    anchors_available = all(
+        generated.get(entity.entity_id) is not None
+        and bool(generated[entity.entity_id].retained)
+        for entity in task.entities[1:]
+    )
+    evidence = StageEvidence(
+        parser_correct=True,
+        target_observed=None,
+        target_detected=target_count > 0,
+        anchors_available=anchors_available,
+        target_lifted=(
+            resolution is not None
+            and resolution.selected_target_id is not None
+        ),
+        identity_correct=None,
+        colour_correct=None,
+        relation_correct=None,
+        target_selected_correctly=None,
+        obb_acceptable=(None if marker_spec is None else not marker_errors),
+        protocol_valid=protocol_valid,
+        detail={
+            'target_subtype': (
+                None if target_count else 'not_available_to_reasoning'
+            ),
+            'anchor_subtype': (
+                None if anchors_available else 'anchor_unavailable'
+            ),
+            'protocol_subtype': (
+                None if protocol_valid else 'no_valid_final_marker'
+            ),
+        },
+    )
+    failure = classify_primary_failure(evidence)
+    ranked = resolution.ranked_hypotheses if resolution else ()
+    duration = max(
+        0.0,
+        node._now() - (
+            node._object_reference_started_at or node._now()
+        ),
+    )
+    directory = Path(str(
+        node.get_parameter('object_reference_result_directory').value
+    ))
+    case_id = str(node.get_parameter('object_reference_case_id').value)
+    scene_id = str(node.get_parameter('object_reference_scene_id').value)
+    run_id = str(node.get_parameter('object_reference_run_id').value)
+    result = ObjectReferenceEpisodeResult(
+        run_id=run_id,
+        case_id=case_id,
+        scene_id=scene_id,
+        question=node._question_latch.active_question or '<unknown>',
+        pipeline_mode='perceived',
+        episode_status=(
+            'protocol_failure' if not protocol_valid else (
+                'completed_with_fallback'
+                if resolution and resolution.used_fallback
+                else 'completed'
+            )
+        ),
+        parser_mode=task.parse_mode,
+        task_specification=task_specification_data(task),
+        requested_classes=tuple(
+            item.canonical_name
+            for item in detector_classes_from_task_specification(task)
+        ),
+        stage_evidence=evidence,
+        target_detections=target_count,
+        anchor_detections={
+            entity.class_name: len(
+                generated[entity.entity_id].retained
+            ) if entity.entity_id in generated else 0
+            for entity in task.entities[1:]
+        },
+        object_candidates_3d=(
+            len(node.latest_lifting_frame.candidates)
+            if node.latest_lifting_frame is not None else 0
+        ),
+        lifting_results=(
+            () if node.latest_lifting_frame is None else tuple(
+                {
+                    'detection_id': item.detection_id,
+                    'status': item.status.value,
+                    'reason': item.reason,
+                    'counts': asdict(item.counts),
+                    'processing_time_ms': item.processing_time_ms,
+                }
+                for item in node.latest_lifting_frame.results
+            )
+        ),
+        persistent_instances=len(node._object_map.active_instances()),
+        fusion_events=tuple(node._object_reference_fusion_events),
+        ranked_target_ids=tuple(item.target_id for item in ranked),
+        ranked_target_scores=tuple(item.score for item in ranked),
+        ranked_score_components=tuple(item.to_dict() for item in ranked),
+        confidence_margin=(
+            resolution.confidence_margin if resolution else None
+        ),
+        unresolved_constraints=(
+            resolution.unresolved_constraints if resolution else ()
+        ),
+        selected_target_id=(
+            resolution.selected_target_id if resolution else None
+        ),
+        predicted_box=(
+            None if marker_spec is None else {
+                'frame_id': marker_spec.frame_id,
+                'centre_xyz': marker_spec.centre_xyz,
+                'orientation_xyzw': marker_spec.orientation_xyzw,
+                'dimensions_xyz': marker_spec.dimensions_xyz,
+            }
+        ),
+        marker_validation_errors=tuple(marker_errors),
+        marker_published=protocol_valid,
+        marker_publish_count=int(protocol_valid),
+        marker_publish_time_sec=(duration if protocol_valid else None),
+        matching_waypoint_published=(
+            protocol_valid and bool(node.get_parameter(
+                'publish_object_matching_waypoint'
+            ).value)
+        ),
+        targeted_viewpoint_used=(
+            node._object_reference_selected_viewpoint is not None
+        ),
+        targeted_viewpoint_reason=node._object_reference_viewpoint_reason,
+        targeted_viewpoint_pose=(
+            None if node._object_reference_selected_viewpoint is None
+            else node._object_reference_selected_viewpoint.pose_xy_heading
+        ),
+        primary_failure_category=failure.category,
+        failure_subtype=failure.subtype,
+        failure_detail=failure.detail,
+        episode_duration_sec=duration,
+        trace_path=str(node.get_parameter('trace_path').value),
+        evidence_directory=str(directory),
+        final_response_logged=True,
+        proxy_score=(
+            0.25 + 0.50 * float(target_count > 0)
+            + 0.25 * float(anchors_available)
+            + 1.0 * float(protocol_valid)
+        ),
+    )
+    _atomic_write_json(directory / 'episode_result.json', result.to_dict())
+    _atomic_write_json(
+        directory / 'candidate_ranking.json',
+        {} if resolution is None else resolution.to_dict(),
+    )
+    _atomic_write_json(
+        directory / 'task_specification.json',
+        task_specification_data(task),
+    )
+
+
 def rank_fix_candidates(
     candidates: Any,
 ) -> tuple[FixCandidate, ...]:
@@ -620,4 +801,5 @@ __all__ = [
     'manifest_digest',
     'rank_fix_candidates',
     'task_specification_data',
+    'write_object_reference_result',
 ]

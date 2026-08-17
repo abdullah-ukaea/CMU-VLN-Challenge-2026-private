@@ -4,101 +4,66 @@ from collections import deque
 from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import asdict
-from dataclasses import replace
-import json
 from math import atan2
-from pathlib import Path
-from threading import RLock
 
-import cv2
 from geometry_msgs.msg import Pose2D
 from nav_msgs.msg import Odometry
 import numpy as np
 from qmapnav.common import TaskSpecification
 from qmapnav.common.decision_trace import DecisionTraceEvent
-from qmapnav.common.decision_trace import JsonlDecisionTraceRecorder
 from qmapnav.common.decision_trace import TraceRecorder
 from qmapnav.counting import CountStabilityConfig
 from qmapnav.language import parse_question
 from qmapnav.mapping import AccumulationStatus
-from qmapnav.mapping import AssociationConfig
 from qmapnav.mapping import AssociationFailure
-from qmapnav.mapping import BoundedProjectionWorker
-from qmapnav.mapping import DenseRegisteredScanAccumulator
-from qmapnav.mapping import DenseScanAccumulatorConfig
-from qmapnav.mapping import ProjectionConfig
 from qmapnav.mapping import ProjectionFrame
 from qmapnav.mapping import ProjectionPipeline
-from qmapnav.mapping import ProjectionQualityConfig
-from qmapnav.mapping import ProjectionSynchronizer
 from qmapnav.mapping import RegisteredScanAccumulator
-from qmapnav.mapping import ScanAccumulatorConfig
 from qmapnav.mapping import TimedPanorama
 from qmapnav.mapping import TimedPose
 from qmapnav.mapping import TimedRegisteredScan
-from qmapnav.mapping.bounding_boxes import BoxEstimationConfig
-from qmapnav.mapping.cluster_selection import ClusterSelectionConfig
-from qmapnav.mapping.depth_filter import DepthFilterConfig
 from qmapnav.mapping.lifting_pipeline import LiftingFrame
 from qmapnav.mapping.lifting_pipeline import LiftingPipeline
-from qmapnav.mapping.lifting_visualisation import draw_candidate_orthographic
-from qmapnav.mapping.lifting_visualisation import draw_depth_histogram
-from qmapnav.mapping.lifting_visualisation import draw_lifting_stage_overlay
-from qmapnav.mapping.map_visualisation import draw_persistent_map_top_down
-from qmapnav.mapping.object_association import (
-    AssociationConfig as ObjectAssociationConfig,
-)
-from qmapnav.mapping.object_candidate import GeometrySource
-from qmapnav.mapping.object_candidate import GeometryStatus
-from qmapnav.mapping.object_candidate import ObjectCandidate3D
-from qmapnav.mapping.object_lifting import ObjectLifter
-from qmapnav.mapping.object_lifting import ObjectLiftingConfig
 from qmapnav.mapping.object_map import ObjectMap
-from qmapnav.mapping.object_map import ObjectMapConfig
 from qmapnav.mapping.occupancy_grid import occupancy_from_scan_accumulator
-from qmapnav.mapping.orientation_confidence import OrientationConfidenceConfig
 from qmapnav.mapping.point_cloud import decode_scan_arrays
 from qmapnav.mapping.point_cloud import ScanArrays
 from qmapnav.mapping.point_cloud import stamp_to_nanoseconds
-from qmapnav.mapping.point_selection import PointSelectionConfig
-from qmapnav.mapping.projection_regression import save_projection_regression_case
-from qmapnav.mapping.projection_visualisation import draw_detection_projection_overlay
-from qmapnav.mapping.projection_visualisation import draw_projection_overlay
-from qmapnav.mapping.projection_visualisation import draw_top_down_projection
 from qmapnav.mapping.structural_map import StructuralMap
-from qmapnav.mapping.structural_map import StructuralMapConfig
-from qmapnav.mapping.transforms import invert_transform
-from qmapnav.mapping.transforms import make_transform
-from qmapnav.mapping.transforms import quaternion_xyzw_to_rotation
-from qmapnav.mapping.viewpoint_observation import ViewpointObservation
-from qmapnav.mapping.wall_extraction import WallExtractionConfig
-from qmapnav.mission.episode_reports import classify_primary_failure
-from qmapnav.mission.episode_reports import ObjectReferenceEpisodeResult
-from qmapnav.mission.episode_reports import StageEvidence
-from qmapnav.mission.episode_reports import task_specification_data
+from qmapnav.mission.episode_reports import write_object_reference_result
 from qmapnav.mission.instruction_episode import InstructionEpisodeCoordinator
-from qmapnav.mission.marker_adapter import candidate_marker_array
 from qmapnav.mission.marker_adapter import CANDIDATE_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import FinalObjectAnswerGuard
-from qmapnav.mission.marker_adapter import object_map_marker_array
 from qmapnav.mission.marker_adapter import OBJECT_MAP_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import OFFICIAL_MARKER_TOPIC
-from qmapnav.mission.marker_adapter import relation_marker_array
 from qmapnav.mission.marker_adapter import RELATION_MARKER_TOPIC
-from qmapnav.mission.marker_adapter import structural_map_marker_array
 from qmapnav.mission.marker_adapter import STRUCTURAL_MAP_MARKER_TOPIC
 from qmapnav.mission.marker_adapter import validate_marker_spec
 from qmapnav.mission.numerical_episode import NumericalEpisodeCoordinator
 from qmapnav.mission.numerical_episode import NumericalEpisodeState
 from qmapnav.mission.numerical_output_adapter import NumericalOutputAdapter
 from qmapnav.mission.numerical_output_adapter import OFFICIAL_NUMERICAL_TOPIC
+from qmapnav.mission.perception_runtime import (
+    _crop_colour_support as _perception_crop_colour_support,
+    _decode_image_rgb as _perception_decode_image_rgb,
+    decode_image_rgb,
+    PerceptionRuntime,
+)
 from qmapnav.mission.question_latch import QuestionLatch
 from qmapnav.mission.question_latch import QuestionLatchStatus
-from qmapnav.navigation import DEFAULT_ARRIVAL_RADIUS
-from qmapnav.navigation import DEFAULT_DIRECT_REPUBLISH_LIMIT
-from qmapnav.navigation import DEFAULT_NO_PROGRESS_TIMEOUT
-from qmapnav.navigation import DEFAULT_PROGRESS_EPSILON
-from qmapnav.navigation import DEFAULT_SAFE_OFFSET_LIMIT
+from qmapnav.mission.runtime_config import colour_prototype_path
+from qmapnav.mission.runtime_config import declare_parameters
+from qmapnav.mission.runtime_config import make_accumulator
+from qmapnav.mission.runtime_config import make_colour_classifier_config
+from qmapnav.mission.runtime_config import make_colour_selection_config
+from qmapnav.mission.runtime_config import make_lifting_pipeline
+from qmapnav.mission.runtime_config import make_object_map
+from qmapnav.mission.runtime_config import make_projection_pipeline
+from qmapnav.mission.runtime_config import make_reasoning_configs
+from qmapnav.mission.runtime_config import make_relation_graph
+from qmapnav.mission.runtime_config import make_structural_map
+from qmapnav.mission.runtime_config import make_targeted_viewpoint_config
+from qmapnav.mission.runtime_config import make_trace_recorder
 from qmapnav.navigation import EvidenceSufficiency
 from qmapnav.navigation import ExecutorEvent
 from qmapnav.navigation import ExecutorEventType
@@ -108,34 +73,15 @@ from qmapnav.navigation import SemanticStageExecutor
 from qmapnav.navigation import SemanticStageState
 from qmapnav.navigation import SequentialWaypointExecutor
 from qmapnav.navigation import stage_waypoints
-from qmapnav.navigation import TargetedViewpointConfig
 from qmapnav.navigation import TwoStageRouteError
 from qmapnav.navigation import Waypoint2D
 from qmapnav.navigation import WaypointExecutorState
 from qmapnav.perception.baseline import make_default_perception_worker
-from qmapnav.perception.contracts import Detection2D
-from qmapnav.perception.contracts import PerceptionRequest
-from qmapnav.perception.panorama_projection import PanoramaCameraModel
-from qmapnav.perception.vocabulary import detector_classes_from_task_specification
-from qmapnav.reasoning.ambiguity import AmbiguityConfig
-from qmapnav.reasoning.candidate_generation import CandidateGenerationConfig
-from qmapnav.reasoning.colour_classifier import classify_colour
-from qmapnav.reasoning.colour_classifier import ColourClassifierConfig
-from qmapnav.reasoning.colour_features import extract_colour_features
-from qmapnav.reasoning.colour_pixel_filter import ColourSelectionConfig
-from qmapnav.reasoning.colour_pixel_filter import filter_reliable_pixels
-from qmapnav.reasoning.colour_pixel_filter import select_object_pixels
 from qmapnav.reasoning.colour_prototypes import load_colour_prototypes
-from qmapnav.reasoning.colour_types import ColourEstimate
-from qmapnav.reasoning.corridor_evaluation import CorridorConfig
 from qmapnav.reasoning.object_reference_solver import (
     resolve_object_reference_from_maps,
 )
 from qmapnav.reasoning.relation_graph import RelationGraph
-from qmapnav.reasoning.spatial_relations import SpatialRelationConfig
-from qmapnav.reasoning.support_geometry import support_geometry
-from qmapnav.reasoning.support_relations import SupportRelationConfig
-from qmapnav.reasoning.vertical_relations import VerticalRelationConfig
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -146,6 +92,10 @@ from std_msgs.msg import Int32
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
+
+
+_crop_colour_support = _perception_crop_colour_support
+_decode_image_rgb = _perception_decode_image_rgb
 
 
 class QMapNavNode(Node):
@@ -169,7 +119,7 @@ class QMapNavNode(Node):
             'qmapnav',
             parameter_overrides=parameter_overrides,
         )
-        self._declare_parameters()
+        declare_parameters(self)
         self._question_parser = question_parser
         self._point_cloud_decoder = point_cloud_decoder
         self._episode_start_time = self._now()
@@ -191,14 +141,9 @@ class QMapNavNode(Node):
         self._latest_timed_pose: TimedPose | None = None
         self._last_traced_scan_count = 0
         self._trace_closed = False
-        self._projection_lock = RLock()
-        self._latest_projection_frame: ProjectionFrame | None = None
-        self._latest_lifting_frame: LiftingFrame | None = None
         self._perception_worker = perception_worker
         self._processed_image_ids: deque[str] = deque(maxlen=128)
         self._processed_image_id_set: set[str] = set()
-        self._saved_projection_count = 0
-        self._structural_frame_count = 0
         self._persistent_path_xy: deque[tuple[float, float]] = deque(
             maxlen=2048
         )
@@ -224,28 +169,28 @@ class QMapNavNode(Node):
 
         self._question_latch = QuestionLatch()
         self._task_specification: TaskSpecification | None = None
-        self._scan_accumulator = scan_accumulator or self._create_accumulator()
+        self._scan_accumulator = scan_accumulator or make_accumulator(self)
         self._projection_pipeline = (
-            projection_pipeline or self._create_projection_pipeline()
+            projection_pipeline or make_projection_pipeline(self)
         )
         self._lifting_pipeline = (
-            lifting_pipeline or self._create_lifting_pipeline()
+            lifting_pipeline or make_lifting_pipeline(self)
         )
-        self._object_map = object_map or self._create_object_map()
-        self._structural_map = structural_map or self._create_structural_map()
-        self._colour_selection_config = self._create_colour_selection_config()
-        self._colour_classifier_config = self._create_colour_classifier_config()
+        self._object_map = object_map or make_object_map(self)
+        self._structural_map = structural_map or make_structural_map(self)
+        self._colour_selection_config = make_colour_selection_config(self)
+        self._colour_classifier_config = make_colour_classifier_config(self)
         self._colour_prototypes = load_colour_prototypes(
-            self._colour_prototype_path()
+            colour_prototype_path(self)
         )
-        self._relation_graph = self._create_relation_graph()
+        self._relation_graph = make_relation_graph(self)
         (
             self._reasoning_candidate_config,
             self._reasoning_spatial_config,
             self._reasoning_ambiguity_config,
             self._reasoning_corridor_config,
-        ) = self._create_reasoning_configs()
-        self._trace_recorder = trace_recorder or self._create_trace_recorder()
+        ) = make_reasoning_configs(self)
+        self._trace_recorder = trace_recorder or make_trace_recorder(self)
         self._waypoint_executor = SequentialWaypointExecutor(
             arrival_radius=float(self.get_parameter('arrival_radius').value),
             progress_epsilon=float(
@@ -367,15 +312,26 @@ class QMapNavNode(Node):
                 'structural_map': asdict(self._structural_map.config),
                 'colour_selection': asdict(self._colour_selection_config),
                 'colour_classifier': asdict(self._colour_classifier_config),
-                'colour_prototype_path': str(self._colour_prototype_path()),
+                'colour_prototype_path': str(colour_prototype_path(self)),
             },
         )
-        self._projection_worker = BoundedProjectionWorker(
-            self._process_panorama,
-            self._on_projection_result,
-            max_queue_size=int(
-                self.get_parameter('projection_worker_queue_size').value
-            ),
+        self._perception_runtime = PerceptionRuntime(
+            self,
+            projection_pipeline=self._projection_pipeline,
+            lifting_pipeline=self._lifting_pipeline,
+            object_map=self._object_map,
+            structural_map=self._structural_map,
+            relation_graph=self._relation_graph,
+            colour_selection_config=self._colour_selection_config,
+            colour_classifier_config=self._colour_classifier_config,
+            colour_prototypes=self._colour_prototypes,
+            persistent_path_xy=self._persistent_path_xy,
+            object_reference_fusion_events=self._object_reference_fusion_events,
+            candidate_marker_publisher=self._candidate_marker_publisher,
+            object_map_marker_publisher=self._object_map_marker_publisher,
+            structural_map_marker_publisher=self._structural_map_marker_publisher,
+            relation_marker_publisher=self._relation_marker_publisher,
+            perception_worker=self._perception_worker,
         )
         self.get_logger().info('Q-MapNav node initialized')
 
@@ -391,6 +347,7 @@ class QMapNavNode(Node):
         if self._perception_worker is not None:
             raise RuntimeError('perception worker is already configured')
         self._perception_worker = worker
+        self._perception_runtime.set_perception_worker(worker)
 
     @property
     def task_specification(self) -> TaskSpecification | None:
@@ -409,15 +366,13 @@ class QMapNavNode(Node):
 
     @property
     def latest_projection_frame(self) -> ProjectionFrame | None:
-        """Return the latest immutable Day 5 projection result."""
-        with self._projection_lock:
-            return self._latest_projection_frame
+        """Return the latest immutable projection result."""
+        return self._perception_runtime.latest_projection_frame
 
     @property
     def latest_lifting_frame(self) -> LiftingFrame | None:
         """Return the latest immutable single-observation lifting result."""
-        with self._projection_lock:
-            return self._latest_lifting_frame
+        return self._perception_runtime.latest_lifting_frame
 
     @property
     def object_map(self) -> ObjectMap:
@@ -439,7 +394,6 @@ class QMapNavNode(Node):
         self._object_map.reset_episode()
         self._structural_map.reset_episode()
         self._relation_graph.recompute([])
-        self._structural_frame_count = 0
         self._persistent_path_xy.clear()
 
     def _advance_object_reference_episode(self) -> None:
@@ -529,7 +483,7 @@ class QMapNavNode(Node):
                 self._object_reference_viewpoint_guard.attempted
             ),
         )
-        policy = self._targeted_viewpoint_config()
+        policy = make_targeted_viewpoint_config(self)
         from qmapnav.navigation import decide_targeted_viewpoint
         decision = decide_targeted_viewpoint(evidence, policy)
         self._object_reference_viewpoint_reason = decision.reason
@@ -676,8 +630,8 @@ class QMapNavNode(Node):
                 ),
             },
         )
-        self._write_object_reference_result(
-            resolution, marker_spec, marker_errors, protocol_valid
+        write_object_reference_result(
+            self, resolution, marker_spec, marker_errors, protocol_valid
         )
 
     def _advance_numerical_episode(self, viewpoint_id: str) -> None:
@@ -1038,193 +992,6 @@ class QMapNavNode(Node):
         if not succeeded:
             self._advance_instruction_episode(force=True)
 
-    def _write_object_reference_result(
-        self,
-        resolution,
-        marker_spec,
-        marker_errors,
-        protocol_valid,
-    ) -> None:
-        task = self._task_specification
-        target = task.entities[0]
-        generated = resolution.candidate_generation if resolution else {}
-        target_generated = generated.get(target.entity_id)
-        target_count = (
-            len(target_generated.retained) if target_generated else 0
-        )
-        anchors_available = all(
-            generated.get(entity.entity_id) is not None
-            and bool(generated[entity.entity_id].retained)
-            for entity in task.entities[1:]
-        )
-        evidence = StageEvidence(
-            parser_correct=True,
-            target_observed=None,
-            target_detected=target_count > 0,
-            anchors_available=anchors_available,
-            target_lifted=(
-                resolution is not None
-                and resolution.selected_target_id is not None
-            ),
-            identity_correct=None,
-            colour_correct=None,
-            relation_correct=None,
-            target_selected_correctly=None,
-            obb_acceptable=(None if marker_spec is None else not marker_errors),
-            protocol_valid=protocol_valid,
-            detail={
-                'target_subtype': (
-                    None if target_count else 'not_available_to_reasoning'
-                ),
-                'anchor_subtype': (
-                    None if anchors_available else 'anchor_unavailable'
-                ),
-                'protocol_subtype': (
-                    None if protocol_valid else 'no_valid_final_marker'
-                ),
-            },
-        )
-        failure = classify_primary_failure(evidence)
-        ranked = resolution.ranked_hypotheses if resolution else ()
-        duration = max(
-            0.0,
-            self._now() - (
-                self._object_reference_started_at or self._now()
-            ),
-        )
-        directory = Path(str(
-            self.get_parameter('object_reference_result_directory').value
-        ))
-        case_id = str(self.get_parameter('object_reference_case_id').value)
-        scene_id = str(self.get_parameter('object_reference_scene_id').value)
-        run_id = str(self.get_parameter('object_reference_run_id').value)
-        result = ObjectReferenceEpisodeResult(
-            run_id=run_id,
-            case_id=case_id,
-            scene_id=scene_id,
-            question=self._question_latch.active_question or '<unknown>',
-            pipeline_mode='perceived',
-            episode_status=(
-                'protocol_failure' if not protocol_valid else (
-                    'completed_with_fallback'
-                    if resolution and resolution.used_fallback
-                    else 'completed'
-                )
-            ),
-            parser_mode=task.parse_mode,
-            task_specification=task_specification_data(task),
-            requested_classes=tuple(
-                item.canonical_name
-                for item in detector_classes_from_task_specification(task)
-            ),
-            stage_evidence=evidence,
-            target_detections=target_count,
-            anchor_detections={
-                entity.class_name: len(
-                    generated[entity.entity_id].retained
-                ) if entity.entity_id in generated else 0
-                for entity in task.entities[1:]
-            },
-            object_candidates_3d=(
-                len(self._latest_lifting_frame.candidates)
-                if self._latest_lifting_frame is not None else 0
-            ),
-            lifting_results=(
-                () if self._latest_lifting_frame is None else tuple(
-                    {
-                        'detection_id': item.detection_id,
-                        'status': item.status.value,
-                        'reason': item.reason,
-                        'counts': asdict(item.counts),
-                        'processing_time_ms': item.processing_time_ms,
-                    }
-                    for item in self._latest_lifting_frame.results
-                )
-            ),
-            persistent_instances=len(self._object_map.active_instances()),
-            fusion_events=tuple(self._object_reference_fusion_events),
-            ranked_target_ids=tuple(item.target_id for item in ranked),
-            ranked_target_scores=tuple(item.score for item in ranked),
-            ranked_score_components=tuple(item.to_dict() for item in ranked),
-            confidence_margin=(
-                resolution.confidence_margin if resolution else None
-            ),
-            unresolved_constraints=(
-                resolution.unresolved_constraints if resolution else ()
-            ),
-            selected_target_id=(
-                resolution.selected_target_id if resolution else None
-            ),
-            predicted_box=(
-                None if marker_spec is None else {
-                    'frame_id': marker_spec.frame_id,
-                    'centre_xyz': marker_spec.centre_xyz,
-                    'orientation_xyzw': marker_spec.orientation_xyzw,
-                    'dimensions_xyz': marker_spec.dimensions_xyz,
-                }
-            ),
-            marker_validation_errors=tuple(marker_errors),
-            marker_published=protocol_valid,
-            marker_publish_count=int(protocol_valid),
-            marker_publish_time_sec=(duration if protocol_valid else None),
-            matching_waypoint_published=(
-                protocol_valid and bool(self.get_parameter(
-                    'publish_object_matching_waypoint'
-                ).value)
-            ),
-            targeted_viewpoint_used=(
-                self._object_reference_selected_viewpoint is not None
-            ),
-            targeted_viewpoint_reason=self._object_reference_viewpoint_reason,
-            targeted_viewpoint_pose=(
-                None if self._object_reference_selected_viewpoint is None
-                else self._object_reference_selected_viewpoint.pose_xy_heading
-            ),
-            primary_failure_category=failure.category,
-            failure_subtype=failure.subtype,
-            failure_detail=failure.detail,
-            episode_duration_sec=duration,
-            trace_path=str(self.get_parameter('trace_path').value),
-            evidence_directory=str(directory),
-            final_response_logged=True,
-            proxy_score=(
-                0.25 + 0.50 * float(target_count > 0)
-                + 0.25 * float(anchors_available)
-                + 1.0 * float(protocol_valid)
-            ),
-        )
-        _atomic_write_json(directory / 'episode_result.json', result.to_dict())
-        _atomic_write_json(
-            directory / 'candidate_ranking.json',
-            {} if resolution is None else resolution.to_dict(),
-        )
-        _atomic_write_json(
-            directory / 'task_specification.json',
-            task_specification_data(task),
-        )
-
-    def _targeted_viewpoint_config(self) -> TargetedViewpointConfig:
-        return TargetedViewpointConfig(
-            minimum_confidence_margin=float(self.get_parameter(
-                'targeted_viewpoint_minimum_margin'
-            ).value),
-            minimum_geometry_confidence=float(self.get_parameter(
-                'targeted_viewpoint_minimum_geometry_confidence'
-            ).value),
-            minimum_time_remaining_sec=float(self.get_parameter(
-                'targeted_viewpoint_minimum_time_remaining'
-            ).value),
-            preferred_standoff_m=float(self.get_parameter(
-                'targeted_viewpoint_standoff_m'
-            ).value),
-            lateral_offset_m=float(self.get_parameter(
-                'targeted_viewpoint_lateral_offset_m'
-            ).value),
-            maximum_travel_m=float(self.get_parameter(
-                'targeted_viewpoint_maximum_travel_m'
-            ).value),
-        )
-
     def _publish_matching_object_waypoint(
         self,
         pose_xy_heading: tuple[float, float, float],
@@ -1250,12 +1017,11 @@ class QMapNavNode(Node):
 
     def destroy_node(self) -> None:
         """Perform bounded trace shutdown before destroying ROS entities."""
-        projection_worker = getattr(self, '_projection_worker', None)
-        if projection_worker is not None:
-            if not projection_worker.close(
-                float(self.get_parameter('projection_shutdown_timeout').value)
-            ):
-                self.get_logger().warning('Projection worker did not stop in time')
+        perception_runtime = getattr(self, '_perception_runtime', None)
+        if perception_runtime is not None and not perception_runtime.close(
+            float(self.get_parameter('projection_shutdown_timeout').value)
+        ):
+            self.get_logger().warning('Projection worker did not stop in time')
         if not self._trace_closed:
             self._trace(
                 event='node_shutdown',
@@ -1644,7 +1410,7 @@ class QMapNavNode(Node):
             timestamp_ns = stamp_to_nanoseconds(message.header.stamp)
             if not message.header.frame_id:
                 raise ValueError('camera image frame_id is empty')
-            image_rgb = _decode_image_rgb(message)
+            image_rgb = decode_image_rgb(message)
             image_id = f'{timestamp_ns}'
             if image_id in self._processed_image_id_set:
                 return
@@ -1660,7 +1426,7 @@ class QMapNavNode(Node):
                 image_rgb=image_rgb,
                 receipt_timestamp_ns=self.get_clock().now().nanoseconds,
             )
-            self._projection_worker.submit(panorama)
+            self._perception_runtime.submit(panorama)
         except (TypeError, ValueError) as error:
             self.get_logger().warning(f'Rejected camera image: {error}')
             self._trace(
@@ -1674,454 +1440,31 @@ class QMapNavNode(Node):
         self,
         panorama: TimedPanorama,
     ) -> ProjectionFrame | AssociationFailure:
-        detections = ()
-        if self._perception_worker is not None and self._task_specification is not None:
-            request = PerceptionRequest(
-                image_id=panorama.image_id,
-                timestamp_ns=panorama.timestamp_ns,
-                panorama_rgb=panorama.image_rgb,
-                detector_classes=detector_classes_from_task_specification(
-                    self._task_specification
-                ),
-                task_type=self._task_specification.task_type,
-            )
-            detections = self._perception_worker.process(request).detections
-        return self._projection_pipeline.process(panorama, detections)
+        """Delegate one panorama to the perception runtime."""
+        return self._perception_runtime.process_panorama(panorama)
 
     def _on_projection_result(
         self,
         result: ProjectionFrame | AssociationFailure,
     ) -> None:
-        if isinstance(result, AssociationFailure):
-            self._trace(
-                event='projection_skipped',
-                selected_action='skip_keyframe',
-                selection_reason=result.reason,
-                details={
-                    'image_id': result.panorama.image_id,
-                    'image_timestamp_ns': result.panorama.timestamp_ns,
-                },
-            )
-            return
-        with self._projection_lock:
-            self._latest_projection_frame = result
-        lifting = self._lifting_pipeline.process(result)
-        with self._projection_lock:
-            self._latest_lifting_frame = lifting
-        self._candidate_marker_publisher.publish(
-            candidate_marker_array(lifting.candidates)
-        )
-        self._update_persistent_maps(result, lifting)
-        self._trace(
-            event='projection_completed',
-            selected_action='retain_projection',
-            selection_reason='valid_time_and_frame_association',
-            details={
-                'image_id': result.panorama.image_id,
-                'current': asdict(result.current.diagnostics),
-                'accumulated': asdict(result.accumulated.diagnostics),
-                'dense_stats': asdict(
-                    self._projection_pipeline.dense_accumulator.stats()
-                ),
-                'worker': self._projection_worker.stats(),
-                'lifting': {
-                    'candidate_count': len(lifting.candidates),
-                    'result_count': len(lifting.results),
-                    'ground_reason': lifting.ground_estimate.reason,
-                    'results': tuple(
-                        {
-                            'detection_id': item.detection_id,
-                            'status': item.status.value,
-                            'reason': item.reason,
-                            'counts': asdict(item.counts),
-                            'processing_time_ms': item.processing_time_ms,
-                        }
-                        for item in lifting.results
-                    ),
-                },
-            },
-        )
-        self._save_projection_debug(result, lifting)
-        self._advance_object_reference_episode()
-        self._advance_numerical_episode(
-            self._projection_viewpoint_id(result)
-        )
-        self._advance_instruction_episode()
+        """Delegate one completed projection to the perception runtime."""
+        self._perception_runtime.on_projection_result(result)
 
     def _update_persistent_maps(
         self,
         result: ProjectionFrame,
         lifting: LiftingFrame,
     ) -> None:
-        """Fuse lifted objects, extract walls, and anchor structural rays."""
-        detections = {
-            detection.detection_id: detection
-            for detection in result.detections
-        }
-        pose = result.association.pose
-        quaternion = pose.orientation_xyzw
-        heading = atan2(
-            2.0 * (
-                quaternion[3] * quaternion[2]
-                + quaternion[0] * quaternion[1]
-            ),
-            1.0 - 2.0 * (quaternion[1] ** 2 + quaternion[2] ** 2),
-        )
-        candidates = list(lifting.candidates)
-        observations = []
-        for candidate in candidates:
-            detection = detections.get(candidate.detection_id)
-            crop = (
-                _crop_detection(result.panorama.image_rgb, detection)
-                if detection is not None else None
-            )
-            crop_score = _best_crop_score(candidate, detection, crop)
-            if candidate.partial_geometry:
-                visibility = 'partial'
-            elif candidate.geometry_status is GeometryStatus.SPARSE:
-                visibility = 'sparse'
-            else:
-                visibility = 'full'
-            observations.append(ViewpointObservation(
-                viewpoint_id=result.panorama.image_id,
-                robot_pose_xyz_yaw=np.array([
-                    *pose.position_xyz,
-                    heading,
-                ]),
-                timestamp_ns=result.panorama.timestamp_ns,
-                detection_id=candidate.detection_id,
-                point_count=candidate.point_count,
-                geometry_confidence=candidate.geometry_confidence,
-                visibility=visibility,
-                best_crop=crop,
-                best_crop_score=crop_score,
-            ))
-        try:
-            instance_ids = self._object_map.add_viewpoint_candidates(
-                candidates, observations
-            )
-        except (TypeError, ValueError) as error:
-            self.get_logger().warning(f'ObjectMap update rejected: {error}')
-            self._trace(
-                event='object_map_update_rejected',
-                selected_action='retain_previous_object_map',
-                selection_reason='invalid_candidate_or_observation',
-                details={'error': str(error)},
-            )
-        else:
-            self._update_persistent_colours(
-                result, lifting, candidates, detections, observations,
-                instance_ids,
-            )
-            for event in self._object_map.last_events:
-                self._object_reference_fusion_events.append(event.to_dict())
-                self._trace(
-                    event='object_association',
-                    selected_action=event.decision,
-                    selection_reason=event.reason,
-                    details=event.to_dict(),
-                )
-        self._object_map_marker_publisher.publish(object_map_marker_array(
-            self._object_map.active_instances(),
-            candidates=lifting.candidates,
-            association_events=self._object_map.last_events,
-        ))
-        self._structural_frame_count += 1
-        interval = max(1, int(
-            self.get_parameter('structural_wall_update_interval').value
-        ))
-        if (
-            self._structural_frame_count == 1
-            or self._structural_frame_count % interval == 0
-        ):
-            try:
-                wall_ids = self._structural_map.update_walls_from_points(
-                    result.accumulated_snapshot.points_xyz,
-                    timestamp_ns=result.panorama.timestamp_ns,
-                    viewpoint_id=result.panorama.image_id,
-                )
-            except (TypeError, ValueError) as error:
-                self.get_logger().warning(
-                    f'Structural wall update rejected: {error}'
-                )
-                wall_ids = ()
-            if wall_ids:
-                self._trace(
-                    event='structural_walls_updated',
-                    selected_action='retain_wall_segments',
-                    selection_reason='vertically_supported_line_fit',
-                    details={
-                        'wall_ids': wall_ids,
-                        'wall_count': len(self._structural_map.walls()),
-                    },
-                )
-        transform_map_from_camera = invert_transform(
-            result.current.transform_camera_internal_from_map
-        )
-        for detection in result.detections:
-            metadata = dict(detection.metadata)
-            metadata.update({
-                'viewpoint_id': result.panorama.image_id,
-                'timestamp_ns': result.panorama.timestamp_ns,
-            })
-            annotated = replace(detection, metadata=metadata)
-            anchor = self._structural_map.anchor_detection_to_wall(
-                annotated, transform_map_from_camera
-            )
-            for event in self._structural_map.last_events:
-                if event.reason == 'class_is_not_structural':
-                    continue
-                self._trace(
-                    event='structural_anchor_association',
-                    selected_action=event.decision,
-                    selection_reason=event.reason,
-                    details=event.to_dict(),
-                )
-            del anchor
-        self._structural_map_marker_publisher.publish(
-            structural_map_marker_array(
-                self._structural_map.walls(),
-                self._structural_map.anchors(),
-                self._structural_map.last_events,
-            )
-        )
-        relation_entities = [
-            support_geometry(self._object_map.record(item.instance_id))
-            for item in self._object_map.active_instances()
-        ]
-        relation_entities.extend(
-            support_geometry(anchor)
-            for anchor in self._structural_map.anchors()
-            if anchor.extent_xyz is not None
-        )
-        self._relation_graph.recompute(relation_entities)
-        self._relation_marker_publisher.publish(relation_marker_array(
-            self._relation_graph.edges, relation_entities
-        ))
-        self._trace(
-            event='relation_graph_recomputed',
-            selected_action='replace_derived_relation_graph',
-            selection_reason='persistent_geometry_updated',
-            details={
-                'revision': self._relation_graph.revision,
-                'relations': [
-                    {
-                        'relation': edge.relation,
-                        'subject_id': edge.subject_id,
-                        'anchor_id': edge.anchor_id,
-                        'confidence': edge.confidence,
-                        'gap_m': edge.evidence.vertical_gap_m,
-                        'support_overlap': (
-                            edge.evidence.subject_support_overlap
-                        ),
-                        'geometry_confidence': (
-                            edge.evidence.geometry_confidence
-                        ),
-                    }
-                    for edge in self._relation_graph.edges
-                ],
-                'contradictions': self._relation_graph.contradictions,
-            },
-        )
-
-    def _update_persistent_colours(
-        self,
-        result,
-        lifting,
-        candidates,
-        detections,
-        observations,
-        instance_ids,
-    ) -> None:
-        """Classify each selected observation and fuse it into its stable ID."""
-        projection_uv = _lifting_projection_uv(result, lifting.source)
-        for candidate, observation, instance_id in zip(
-            candidates, observations, instance_ids
-        ):
-            detection = detections.get(candidate.detection_id)
-            selection = None
-            if detection is not None and observation.best_crop is not None:
-                mask, support_uv = _crop_colour_support(
-                    result.panorama.image_rgb.shape[:2],
-                    detection,
-                    projection_uv[candidate.source_projection_indices],
-                )
-                selection = select_object_pixels(
-                    observation.best_crop,
-                    segmentation_mask=mask,
-                    geometry_support_uv=support_uv,
-                    config=self._colour_selection_config,
-                )
-            if selection is None:
-                estimate = ColourEstimate(
-                    {}, None, 0.0, 0, None, None,
-                    observation.viewpoint_id,
-                    observation.detection_id,
-                    'no_crop',
-                )
-                mask_quality = 0.0
-                geometry_quality = 0.0
-            else:
-                pixels = filter_reliable_pixels(
-                    selection, self._colour_selection_config
-                )
-                if pixels.rgb.shape[0] == 0:
-                    estimate = ColourEstimate(
-                        {}, None, 0.0, 0, None, None,
-                        observation.viewpoint_id,
-                        observation.detection_id,
-                        pixels.status,
-                    )
-                else:
-                    features = extract_colour_features(pixels)
-                    estimate = classify_colour(
-                        features,
-                        pixels,
-                        self._colour_prototypes,
-                        source_viewpoint_id=observation.viewpoint_id,
-                        source_detection_id=observation.detection_id,
-                        config=self._colour_classifier_config,
-                    )
-                mask_quality = max(
-                    0.0, 1.0 - selection.contamination_score
-                )
-                if selection.source.startswith('segmentation_mask'):
-                    mask_quality = max(mask_quality, 0.85)
-                geometry_quality = (
-                    candidate.geometry_confidence
-                    if 'geometry_support' in selection.source else 0.65
-                )
-            weight = self._object_map.update_colour(
-                instance_id,
-                estimate,
-                crop_quality=observation.best_crop_score,
-                mask_quality=mask_quality,
-                geometry_support=geometry_quality,
-            )
-            self._trace(
-                event='colour_observation_fused',
-                selected_action=(
-                    'update_colour_evidence' if weight > 0.0
-                    else 'preserve_previous_colour_evidence'
-                ),
-                selection_reason=estimate.status,
-                details={
-                    'instance_id': instance_id,
-                    'detection_id': observation.detection_id,
-                    'probabilities': dict(estimate.probabilities),
-                    'confidence': estimate.confidence,
-                    'valid_pixel_count': estimate.valid_pixel_count,
-                    'observation_weight': weight,
-                },
-            )
+        """Delegate persistent object, structure, and relation updates."""
+        self._perception_runtime.update_persistent_maps(result, lifting)
 
     def _save_projection_debug(
         self,
         result: ProjectionFrame,
         lifting: LiftingFrame,
     ) -> None:
-        output_value = str(self.get_parameter('projection_debug_directory').value)
-        max_saved = int(self.get_parameter('projection_max_saved_frames').value)
-        if not output_value or self._saved_projection_count >= max_saved:
-            return
-        output = Path(output_value) / result.panorama.image_id
-        output.mkdir(parents=True, exist_ok=True)
-        images = {
-            'current.png': draw_projection_overlay(
-                result.panorama.image_rgb,
-                result.current,
-            ),
-            'accumulated.png': draw_projection_overlay(
-                result.panorama.image_rgb,
-                result.accumulated,
-            ),
-            'detections.png': draw_detection_projection_overlay(
-                result.panorama.image_rgb,
-                result.current,
-                result.detections,
-                result.current_detection_support,
-            ),
-            'persistent_map.png': draw_persistent_map_top_down(
-                [
-                    self._object_map.record(instance.instance_id)
-                    for instance in self._object_map.active_instances()
-                ],
-                self._structural_map.walls(),
-                self._structural_map.anchors(),
-                (
-                    np.asarray(self._persistent_path_xy)
-                    if self._persistent_path_xy else None
-                ),
-            ),
-        }
-        orientation = result.association.pose.orientation_xyzw
-        heading = atan2(
-            2.0 * (
-                orientation[3] * orientation[2]
-                + orientation[0] * orientation[1]
-            ),
-            1.0 - 2.0 * (orientation[1] ** 2 + orientation[2] ** 2),
-        )
-        images['top_down.png'] = draw_top_down_projection(
-            result.association.scan.points_xyz,
-            result.accumulated_snapshot.points_xyz,
-            result.association.pose.position_xyz,
-            heading,
-        )
-        lifting_projection = (
-            result.current
-            if lifting.source is GeometrySource.CURRENT
-            else result.accumulated
-        )
-        for index, (detection, lifted) in enumerate(
-            zip(result.detections, lifting.results)
-        ):
-            prefix = f'lift_{index:02d}_{detection.class_name.replace(" ", "_")}'
-            images[f'{prefix}_stages.png'] = draw_lifting_stage_overlay(
-                result.panorama.image_rgb,
-                lifting_projection,
-                detection,
-                lifted,
-            )
-            images[f'{prefix}_depth.png'] = draw_depth_histogram(
-                lifting_projection,
-                lifted,
-            )
-            images[f'{prefix}_geometry.png'] = draw_candidate_orthographic(
-                lifted,
-                result.association.pose.position_xyz,
-            )
-        for filename, image_rgb in images.items():
-            if not cv2.imwrite(
-                str(output / filename),
-                np.ascontiguousarray(image_rgb[..., ::-1]),
-            ):
-                raise RuntimeError(f'failed to save projection debug image {filename}')
-        regression_category = str(
-            self.get_parameter('projection_regression_category').value
-        )
-        if regression_category:
-            save_projection_regression_case(
-                output,
-                category=regression_category,
-                scene_id=str(
-                    self.get_parameter('projection_regression_scene_id').value
-                ),
-                pose_id=str(
-                    self.get_parameter('projection_regression_pose_id').value
-                ),
-                frame=result,
-                transform_sensor_from_camera_optical=(
-                    self._projection_pipeline.transform_sensor_from_camera_optical
-                ),
-                panorama_model=self._projection_pipeline.panorama_model,
-                projection_config=self._projection_pipeline.projection_config,
-                overlay_rgb=images['current.png'],
-                notes=str(
-                    self.get_parameter('projection_regression_notes').value
-                ),
-            )
-        self._saved_projection_count += 1
+        """Delegate bounded projection diagnostics."""
+        self._perception_runtime.save_projection_debug(result, lifting)
 
     def _select_safe_offset(
         self,
@@ -2262,416 +1605,6 @@ class QMapNavNode(Node):
         except Exception as error:  # trace failures must never alter control
             self.get_logger().warning(f'Decision trace event dropped: {error}')
 
-    def _create_accumulator(self) -> RegisteredScanAccumulator:
-        return RegisteredScanAccumulator(
-            ScanAccumulatorConfig(
-                frame_id=str(self.get_parameter('scan_frame').value),
-                voxel_size=float(self.get_parameter('scan_voxel_size').value),
-                max_range=float(self.get_parameter('scan_max_range').value),
-                max_age_seconds=float(
-                    self.get_parameter('scan_max_age_seconds').value
-                ),
-                max_voxels=int(self.get_parameter('scan_max_voxels').value),
-                max_scan_views=int(
-                    self.get_parameter('scan_max_views').value
-                ),
-            )
-        )
-
-    def _create_projection_pipeline(self) -> ProjectionPipeline:
-        translation = np.asarray(
-            self.get_parameter('camera_translation_sensor_xyz').value,
-            dtype=np.float64,
-        )
-        quaternion = np.asarray(
-            self.get_parameter('camera_orientation_sensor_xyzw').value,
-            dtype=np.float64,
-        )
-        transform_sensor_from_camera = make_transform(
-            quaternion_xyzw_to_rotation(quaternion),
-            translation,
-        )
-        association = AssociationConfig(
-            max_pose_delta_ns=int(
-                float(self.get_parameter('projection_max_pose_delta_ms').value)
-                * 1_000_000
-            ),
-            max_scan_delta_ns=int(
-                float(self.get_parameter('projection_max_scan_delta_ms').value)
-                * 1_000_000
-            ),
-            buffer_duration_ns=int(
-                float(self.get_parameter('projection_buffer_seconds').value)
-                * 1_000_000_000
-            ),
-            max_pose_items=int(
-                self.get_parameter('projection_max_pose_items').value
-            ),
-            max_scan_items=int(
-                self.get_parameter('projection_max_scan_items').value
-            ),
-        )
-        dense_config = DenseScanAccumulatorConfig(
-            frame_id=str(self.get_parameter('scan_frame').value),
-            voxel_size_m=float(
-                self.get_parameter('dense_scan_voxel_size').value
-            ),
-            max_age_seconds=float(
-                self.get_parameter('dense_scan_max_age_seconds').value
-            ),
-            max_radius_m=float(
-                self.get_parameter('dense_scan_max_radius').value
-            ),
-            max_points=int(self.get_parameter('dense_scan_max_points').value),
-        )
-        projection_config = ProjectionConfig(
-            expected_scan_frame=str(self.get_parameter('scan_frame').value),
-            expected_pose_parent_frame=str(
-                self.get_parameter('pose_parent_frame').value
-            ),
-            expected_pose_child_frame=str(
-                self.get_parameter('pose_child_frame').value
-            ),
-            min_range_m=float(
-                self.get_parameter('projection_min_range').value
-            ),
-            max_range_m=float(
-                self.get_parameter('projection_max_range').value
-            ),
-            timing_warning_ms=float(
-                self.get_parameter('projection_timing_warning_ms').value
-            ),
-        )
-        quality_config = ProjectionQualityConfig(
-            sparse_point_threshold=int(
-                self.get_parameter('projection_sparse_point_threshold').value
-            ),
-            high_depth_iqr_m=float(
-                self.get_parameter('projection_high_depth_iqr').value
-            ),
-            timing_warning_ms=projection_config.timing_warning_ms,
-        )
-        return ProjectionPipeline(
-            synchronizer=ProjectionSynchronizer(association),
-            dense_accumulator=DenseRegisteredScanAccumulator(dense_config),
-            transform_sensor_from_camera_optical=transform_sensor_from_camera,
-            panorama_model=PanoramaCameraModel(
-                int(self.get_parameter('panorama_width').value),
-                int(self.get_parameter('panorama_height').value),
-            ),
-            projection_config=projection_config,
-            quality_config=quality_config,
-        )
-
-    def _create_lifting_pipeline(self) -> LiftingPipeline:
-        source_text = str(self.get_parameter('lifting_source').value)
-        try:
-            source = GeometrySource(source_text)
-        except ValueError as error:
-            raise ValueError(
-                'lifting_source must be current or accumulated'
-            ) from error
-        config = ObjectLiftingConfig(
-            selection=PointSelectionConfig(
-                bbox_inner_margin_fraction=float(
-                    self.get_parameter('lifting_bbox_inner_margin').value
-                )
-            ),
-            depth=DepthFilterConfig(
-                bin_width_m=float(
-                    self.get_parameter('lifting_depth_bin_width').value
-                ),
-                minimum_mode_points=int(
-                    self.get_parameter('lifting_depth_minimum_mode_points').value
-                ),
-                maximum_band_width_m=float(
-                    self.get_parameter('lifting_depth_maximum_band').value
-                ),
-            ),
-            clustering=ClusterSelectionConfig(
-                base_epsilon_m=float(
-                    self.get_parameter('lifting_dbscan_base_epsilon').value
-                ),
-                range_epsilon_slope=float(
-                    self.get_parameter('lifting_dbscan_range_slope').value
-                ),
-                minimum_samples=int(
-                    self.get_parameter('lifting_dbscan_minimum_samples').value
-                ),
-            ),
-            boxes=BoxEstimationConfig(
-                lower_percentile=float(
-                    self.get_parameter('lifting_box_lower_percentile').value
-                ),
-                upper_percentile=float(
-                    self.get_parameter('lifting_box_upper_percentile').value
-                ),
-            ),
-            orientation=OrientationConfidenceConfig(
-                low_confidence=float(
-                    self.get_parameter('lifting_orientation_low_confidence').value
-                ),
-                high_confidence=float(
-                    self.get_parameter('lifting_orientation_high_confidence').value
-                ),
-            ),
-            ground_clearance_m=float(
-                self.get_parameter('lifting_ground_clearance').value
-            ),
-            floor_standing_clearance_m=float(
-                self.get_parameter('lifting_floor_standing_clearance').value
-            ),
-            sparse_point_threshold=int(
-                self.get_parameter('lifting_sparse_point_threshold').value
-            ),
-        )
-        return LiftingPipeline(
-            ObjectLifter(config),
-            source=source,
-            use_masks=bool(self.get_parameter('lifting_use_masks').value),
-        )
-
-    def _create_object_map(self) -> ObjectMap:
-        return ObjectMap(ObjectMapConfig(
-            association=ObjectAssociationConfig(
-                accept_threshold=float(
-                    self.get_parameter('object_map_accept_threshold').value
-                ),
-                uncertain_threshold=float(
-                    self.get_parameter('object_map_uncertain_threshold').value
-                ),
-                yaw_confidence_threshold=float(self.get_parameter(
-                    'object_map_yaw_confidence_threshold'
-                ).value),
-            ),
-            same_keyframe_distance_m=float(self.get_parameter(
-                'object_map_same_keyframe_distance'
-            ).value),
-            same_keyframe_overlap_threshold=float(self.get_parameter(
-                'object_map_same_keyframe_overlap'
-            ).value),
-            fused_voxel_size_m=float(
-                self.get_parameter('object_map_fused_voxel_size').value
-            ),
-            max_fused_points_per_instance=int(self.get_parameter(
-                'object_map_max_points_per_instance'
-            ).value),
-            max_total_fused_points=int(
-                self.get_parameter('object_map_max_total_points').value
-            ),
-            max_observation_history=int(self.get_parameter(
-                'object_map_max_observation_history'
-            ).value),
-            max_colour_history=int(self.get_parameter(
-                'colour_max_observation_history'
-            ).value),
-            max_colour_evidence=float(self.get_parameter(
-                'colour_max_fused_evidence'
-            ).value),
-        ))
-
-    def _colour_prototype_path(self) -> Path:
-        value = str(self.get_parameter('colour_prototype_path').value)
-        if value:
-            return Path(value)
-        source_path = Path(__file__).resolve().parents[2] / (
-            'data/colour_prototypes.json'
-        )
-        if source_path.exists():
-            return source_path
-        from ament_index_python.packages import get_package_share_directory
-
-        return Path(get_package_share_directory('qmapnav')) / (
-            'data/colour_prototypes.json'
-        )
-
-    def _create_colour_selection_config(self) -> ColourSelectionConfig:
-        return ColourSelectionConfig(
-            min_valid_pixels=int(
-                self.get_parameter('colour_min_valid_pixels').value
-            ),
-            mask_erosion_px=int(
-                self.get_parameter('colour_mask_erosion_px').value
-            ),
-            small_object_mask_erosion_px=int(self.get_parameter(
-                'colour_small_object_mask_erosion_px'
-            ).value),
-            geometry_support_dilation_px=int(self.get_parameter(
-                'colour_geometry_support_dilation_px'
-            ).value),
-            contracted_box_margin_fraction=float(self.get_parameter(
-                'colour_contracted_box_margin_fraction'
-            ).value),
-            low_saturation_threshold=float(self.get_parameter(
-                'colour_low_saturation_threshold'
-            ).value),
-            shadow_lower_percentile=float(self.get_parameter(
-                'colour_shadow_lower_percentile'
-            ).value),
-            highlight_value_threshold=float(self.get_parameter(
-                'colour_highlight_value_threshold'
-            ).value),
-            highlight_saturation_threshold=float(self.get_parameter(
-                'colour_highlight_saturation_threshold'
-            ).value),
-        )
-
-    def _create_colour_classifier_config(self) -> ColourClassifierConfig:
-        return ColourClassifierConfig(
-            probability_temperature=float(self.get_parameter(
-                'colour_probability_temperature'
-            ).value),
-            ambiguous_margin=float(
-                self.get_parameter('colour_ambiguous_margin').value
-            ),
-            min_valid_pixels=int(
-                self.get_parameter('colour_min_valid_pixels').value
-            ),
-            low_saturation_threshold=float(self.get_parameter(
-                'colour_low_saturation_threshold'
-            ).value),
-        )
-
-    def _create_relation_graph(self) -> RelationGraph:
-        return RelationGraph(
-            VerticalRelationConfig(
-                vertical_tolerance_m=float(self.get_parameter(
-                    'relation_above_vertical_tolerance'
-                ).value),
-            ),
-            SupportRelationConfig(
-                maximum_support_gap_m=float(self.get_parameter(
-                    'relation_maximum_support_gap'
-                ).value),
-                penetration_tolerance_m=float(self.get_parameter(
-                    'relation_penetration_tolerance'
-                ).value),
-                minimum_subject_support_overlap=float(self.get_parameter(
-                    'relation_minimum_subject_support_overlap'
-                ).value),
-                support_search_radius_m=float(self.get_parameter(
-                    'relation_support_search_radius'
-                ).value),
-                minimum_geometry_confidence=float(self.get_parameter(
-                    'relation_minimum_geometry_confidence'
-                ).value),
-                accept_on_confidence=float(self.get_parameter(
-                    'relation_accept_on_confidence'
-                ).value),
-                uncertain_on_confidence=float(self.get_parameter(
-                    'relation_uncertain_on_confidence'
-                ).value),
-                include_floor_supports=bool(self.get_parameter(
-                    'relation_include_floor_supports'
-                ).value),
-            ),
-        )
-
-    def _create_reasoning_configs(self):
-        """Load all Day 9 thresholds, including the system robot width."""
-        candidate = CandidateGenerationConfig(
-            minimum_class_probability=float(self.get_parameter(
-                'reasoning_minimum_class_probability'
-            ).value),
-            minimum_colour_probability=float(self.get_parameter(
-                'reasoning_minimum_colour_probability'
-            ).value),
-            minimum_geometry_confidence=float(self.get_parameter(
-                'reasoning_minimum_geometry_confidence'
-            ).value),
-        )
-        spatial = SpatialRelationConfig(
-            minimum_geometry_confidence=(
-                candidate.minimum_geometry_confidence
-            ),
-            near_base_margin_m=float(self.get_parameter(
-                'reasoning_near_base_margin_m'
-            ).value),
-            near_size_scale=float(self.get_parameter(
-                'reasoning_near_size_scale'
-            ).value),
-            between_projection_tolerance=float(self.get_parameter(
-                'reasoning_between_projection_tolerance'
-            ).value),
-            between_max_relative_perpendicular_distance=float(
-                self.get_parameter(
-                    'reasoning_between_max_relative_perpendicular_distance'
-                ).value
-            ),
-            between_min_anchor_separation_m=float(self.get_parameter(
-                'reasoning_between_min_anchor_separation_m'
-            ).value),
-        )
-        ambiguity = AmbiguityConfig(
-            resolved_minimum_score=float(self.get_parameter(
-                'reasoning_resolved_minimum_score'
-            ).value),
-            resolved_minimum_margin=float(self.get_parameter(
-                'reasoning_resolved_minimum_margin'
-            ).value),
-            ambiguous_margin=float(self.get_parameter(
-                'reasoning_ambiguous_margin'
-            ).value),
-        )
-        corridor = CorridorConfig(
-            robot_width_m=float(
-                self.get_parameter('robot_footprint_width_m').value
-            ),
-            safety_clearance_m=float(self.get_parameter(
-                'corridor_safety_clearance_m'
-            ).value),
-            minimum_depth_m=float(self.get_parameter(
-                'corridor_minimum_depth_m'
-            ).value),
-            occupancy_free_fraction=float(self.get_parameter(
-                'corridor_occupancy_free_fraction'
-            ).value),
-            maximum_anchor_separation_m=float(self.get_parameter(
-                'corridor_maximum_anchor_separation_m'
-            ).value),
-        )
-        return candidate, spatial, ambiguity, corridor
-
-    def _create_structural_map(self) -> StructuralMap:
-        wall_config = WallExtractionConfig(
-            min_height_above_ground_m=float(self.get_parameter(
-                'wall_min_height_above_ground'
-            ).value),
-            min_segment_length_m=float(
-                self.get_parameter('wall_min_segment_length').value
-            ),
-            max_line_residual_m=float(
-                self.get_parameter('wall_max_line_residual').value
-            ),
-            merge_angle_deg=float(
-                self.get_parameter('wall_merge_angle_deg').value
-            ),
-            merge_perpendicular_distance_m=float(self.get_parameter(
-                'wall_merge_perpendicular_distance'
-            ).value),
-            preserve_opening_width_m=float(
-                self.get_parameter('wall_preserve_opening_width').value
-            ),
-            max_candidate_points=int(
-                self.get_parameter('wall_max_candidate_points').value
-            ),
-        )
-        return StructuralMap(StructuralMapConfig(
-            wall_extraction=wall_config,
-            ray_parallel_epsilon=float(
-                self.get_parameter('structural_ray_parallel_epsilon').value
-            ),
-            max_wall_extent_margin_m=float(self.get_parameter(
-                'structural_max_wall_extent_margin'
-            ).value),
-            anchor_merge_distance_m=float(self.get_parameter(
-                'structural_anchor_merge_distance'
-            ).value),
-            ambiguous_wall_distance_margin_m=float(self.get_parameter(
-                'structural_ambiguous_wall_distance_margin'
-            ).value),
-        ))
-
     def _expire_episode_if_needed(self) -> bool:
         if self._elapsed() < self._episode_time_limit:
             return False
@@ -2688,212 +1621,6 @@ class QMapNavNode(Node):
             )
         return True
 
-    def _create_trace_recorder(self) -> JsonlDecisionTraceRecorder:
-        return JsonlDecisionTraceRecorder(
-            str(self.get_parameter('trace_path').value),
-            max_queue_size=int(
-                self.get_parameter('trace_max_queue_size').value
-            ),
-            max_file_bytes=int(
-                self.get_parameter('trace_max_file_bytes').value
-            ),
-        )
-
-    def _declare_parameters(self) -> None:
-        self.declare_parameter('arrival_radius', DEFAULT_ARRIVAL_RADIUS)
-        self.declare_parameter('progress_epsilon', DEFAULT_PROGRESS_EPSILON)
-        self.declare_parameter(
-            'no_progress_timeout', DEFAULT_NO_PROGRESS_TIMEOUT
-        )
-        self.declare_parameter(
-            'direct_republish_limit', DEFAULT_DIRECT_REPUBLISH_LIMIT
-        )
-        self.declare_parameter('safe_offset_limit', DEFAULT_SAFE_OFFSET_LIMIT)
-        self.declare_parameter('watchdog_period', 0.25)
-        self.declare_parameter('recovery_offset_distance', 0.75)
-        self.declare_parameter('recovery_clearance', 0.35)
-        self.declare_parameter('episode_time_limit', 600.0)
-        self.declare_parameter(
-            'detector_checkpoint',
-            '/home/docker/models/yoloe-11s-seg.pt',
-        )
-        self.declare_parameter('detector_confidence_threshold', 0.20)
-        self.declare_parameter('detector_cross_crop_iou_threshold', 0.40)
-        self.declare_parameter('numerical_required_consecutive_updates', 3)
-        self.declare_parameter('numerical_required_independent_viewpoints', 2)
-        self.declare_parameter('numerical_minimum_count_confidence', 0.50)
-        self.declare_parameter('numerical_maximum_unresolved_candidates', 0)
-        self.declare_parameter('numerical_final_commit_reserve_sec', 30.0)
-        self.declare_parameter('numerical_maximum_verification_sec', 180.0)
-        self.declare_parameter('instruction_initial_observations', 3)
-        self.declare_parameter('instruction_reobservation_observations', 3)
-        self.declare_parameter('instruction_grid_half_extent_m', 10.0)
-        self.declare_parameter('instruction_grid_resolution_m', 0.25)
-        self.declare_parameter(
-            'instruction_grid_known_free_clearance_m', 0.25
-        )
-        self.declare_parameter('instruction_waypoint_spacing_m', 1.0)
-        self.declare_parameter('instruction_final_route_reserve_sec', 300.0)
-        self.declare_parameter('publish_object_matching_waypoint', True)
-        self.declare_parameter('object_reference_initial_observations', 3)
-        self.declare_parameter(
-            'object_reference_final_commit_reserve_sec', 30.0
-        )
-        self.declare_parameter(
-            'object_reference_result_directory',
-            '/tmp/qmapnav/object_reference',
-        )
-        self.declare_parameter(
-            'object_reference_case_id', 'runtime_object_reference'
-        )
-        self.declare_parameter('object_reference_scene_id', 'unknown')
-        self.declare_parameter('object_reference_run_id', 'runtime')
-        self.declare_parameter('targeted_viewpoint_minimum_margin', 0.12)
-        self.declare_parameter(
-            'targeted_viewpoint_minimum_geometry_confidence', 0.35
-        )
-        self.declare_parameter(
-            'targeted_viewpoint_minimum_time_remaining', 45.0
-        )
-        self.declare_parameter('targeted_viewpoint_standoff_m', 2.0)
-        self.declare_parameter('targeted_viewpoint_lateral_offset_m', 0.8)
-        self.declare_parameter('targeted_viewpoint_maximum_travel_m', 4.0)
-        self.declare_parameter('targeted_viewpoint_clearance_m', 0.35)
-        self.declare_parameter('scan_frame', 'map')
-        self.declare_parameter('scan_voxel_size', 0.20)
-        self.declare_parameter('scan_max_range', 30.0)
-        self.declare_parameter('scan_max_age_seconds', 120.0)
-        self.declare_parameter('scan_max_voxels', 200_000)
-        self.declare_parameter('scan_max_views', 16)
-        self.declare_parameter('pose_parent_frame', 'map')
-        self.declare_parameter('pose_child_frame', 'sensor')
-        self.declare_parameter('panorama_width', 1920)
-        self.declare_parameter('panorama_height', 640)
-        self.declare_parameter('camera_translation_sensor_xyz', [0.0, 0.0, 0.1])
-        self.declare_parameter(
-            'camera_orientation_sensor_xyzw',
-            [-0.5, 0.5, -0.5, 0.5],
-        )
-        self.declare_parameter('projection_max_pose_delta_ms', 50.0)
-        self.declare_parameter('projection_max_scan_delta_ms', 150.0)
-        self.declare_parameter('projection_buffer_seconds', 5.0)
-        self.declare_parameter('projection_max_pose_items', 2_000)
-        self.declare_parameter('projection_max_scan_items', 64)
-        self.declare_parameter('projection_min_range', 0.30)
-        self.declare_parameter('projection_max_range', 30.0)
-        self.declare_parameter('projection_timing_warning_ms', 100.0)
-        self.declare_parameter('projection_sparse_point_threshold', 8)
-        self.declare_parameter('projection_high_depth_iqr', 2.0)
-        self.declare_parameter('dense_scan_voxel_size', 0.04)
-        self.declare_parameter('dense_scan_max_age_seconds', 15.0)
-        self.declare_parameter('dense_scan_max_radius', 12.0)
-        self.declare_parameter('dense_scan_max_points', 1_000_000)
-        self.declare_parameter('projection_worker_queue_size', 2)
-        self.declare_parameter('projection_shutdown_timeout', 2.0)
-        self.declare_parameter('projection_debug_directory', '')
-        self.declare_parameter('projection_max_saved_frames', 5)
-        self.declare_parameter('projection_regression_category', '')
-        self.declare_parameter('projection_regression_scene_id', 'unknown')
-        self.declare_parameter('projection_regression_pose_id', 'unknown')
-        self.declare_parameter(
-            'projection_regression_notes',
-            'Live Day 5 camera-LiDAR alignment regression.',
-        )
-        self.declare_parameter('lifting_source', 'accumulated')
-        self.declare_parameter('lifting_use_masks', False)
-        self.declare_parameter('lifting_bbox_inner_margin', 0.05)
-        self.declare_parameter('lifting_ground_clearance', 0.07)
-        self.declare_parameter('lifting_floor_standing_clearance', 0.02)
-        self.declare_parameter('lifting_depth_bin_width', 0.15)
-        self.declare_parameter('lifting_depth_minimum_mode_points', 5)
-        self.declare_parameter('lifting_depth_maximum_band', 1.5)
-        self.declare_parameter('lifting_dbscan_base_epsilon', 0.07)
-        self.declare_parameter('lifting_dbscan_range_slope', 0.015)
-        self.declare_parameter('lifting_dbscan_minimum_samples', 5)
-        self.declare_parameter('lifting_box_lower_percentile', 2.5)
-        self.declare_parameter('lifting_box_upper_percentile', 97.5)
-        self.declare_parameter('lifting_orientation_low_confidence', 0.40)
-        self.declare_parameter('lifting_orientation_high_confidence', 0.70)
-        self.declare_parameter('lifting_sparse_point_threshold', 8)
-        self.declare_parameter('object_map_accept_threshold', 0.62)
-        self.declare_parameter('object_map_uncertain_threshold', 0.55)
-        self.declare_parameter('object_map_yaw_confidence_threshold', 0.50)
-        self.declare_parameter('object_map_same_keyframe_distance', 0.30)
-        self.declare_parameter('object_map_same_keyframe_overlap', 0.60)
-        self.declare_parameter('object_map_fused_voxel_size', 0.03)
-        self.declare_parameter('object_map_max_points_per_instance', 50_000)
-        self.declare_parameter('object_map_max_total_points', 500_000)
-        self.declare_parameter('object_map_max_observation_history', 100)
-        self.declare_parameter('colour_prototype_path', '')
-        self.declare_parameter('colour_min_valid_pixels', 50)
-        self.declare_parameter('colour_mask_erosion_px', 3)
-        self.declare_parameter('colour_small_object_mask_erosion_px', 1)
-        self.declare_parameter('colour_geometry_support_dilation_px', 3)
-        self.declare_parameter('colour_contracted_box_margin_fraction', 0.08)
-        self.declare_parameter('colour_low_saturation_threshold', 0.15)
-        self.declare_parameter('colour_shadow_lower_percentile', 5.0)
-        self.declare_parameter('colour_highlight_value_threshold', 0.92)
-        self.declare_parameter('colour_highlight_saturation_threshold', 0.12)
-        self.declare_parameter('colour_probability_temperature', 1.0)
-        self.declare_parameter('colour_ambiguous_margin', 0.12)
-        self.declare_parameter('colour_max_fused_evidence', 12.0)
-        self.declare_parameter('colour_max_observation_history', 32)
-        self.declare_parameter('relation_above_vertical_tolerance', 0.08)
-        self.declare_parameter('relation_maximum_support_gap', 0.15)
-        self.declare_parameter('relation_penetration_tolerance', 0.08)
-        self.declare_parameter(
-            'relation_minimum_subject_support_overlap', 0.50
-        )
-        self.declare_parameter('relation_support_search_radius', 2.0)
-        self.declare_parameter('relation_minimum_geometry_confidence', 0.25)
-        self.declare_parameter('relation_accept_on_confidence', 0.70)
-        self.declare_parameter('relation_uncertain_on_confidence', 0.40)
-        self.declare_parameter('relation_include_floor_supports', False)
-        self.declare_parameter('reasoning_minimum_class_probability', 0.15)
-        self.declare_parameter('reasoning_minimum_colour_probability', 0.10)
-        self.declare_parameter('reasoning_minimum_geometry_confidence', 0.20)
-        self.declare_parameter('reasoning_near_base_margin_m', 0.40)
-        self.declare_parameter('reasoning_near_size_scale', 0.75)
-        self.declare_parameter(
-            'reasoning_between_projection_tolerance', 0.05
-        )
-        self.declare_parameter(
-            'reasoning_between_max_relative_perpendicular_distance', 0.35
-        )
-        self.declare_parameter(
-            'reasoning_between_min_anchor_separation_m', 0.30
-        )
-        self.declare_parameter('reasoning_resolved_minimum_score', 0.65)
-        self.declare_parameter('reasoning_resolved_minimum_margin', 0.12)
-        self.declare_parameter('reasoning_ambiguous_margin', 0.08)
-        self.declare_parameter('robot_footprint_width_m', 0.55)
-        self.declare_parameter('corridor_safety_clearance_m', 0.15)
-        self.declare_parameter('corridor_minimum_depth_m', 0.60)
-        self.declare_parameter('corridor_occupancy_free_fraction', 0.90)
-        self.declare_parameter(
-            'corridor_maximum_anchor_separation_m', 5.0
-        )
-        self.declare_parameter('structural_wall_update_interval', 10)
-        self.declare_parameter('wall_min_height_above_ground', 0.20)
-        self.declare_parameter('wall_min_segment_length', 0.50)
-        self.declare_parameter('wall_max_line_residual', 0.08)
-        self.declare_parameter('wall_merge_angle_deg', 5.0)
-        self.declare_parameter('wall_merge_perpendicular_distance', 0.12)
-        self.declare_parameter('wall_preserve_opening_width', 0.60)
-        self.declare_parameter('wall_max_candidate_points', 50_000)
-        self.declare_parameter('structural_ray_parallel_epsilon', 1.0e-6)
-        self.declare_parameter('structural_max_wall_extent_margin', 0.25)
-        self.declare_parameter('structural_anchor_merge_distance', 0.55)
-        self.declare_parameter(
-            'structural_ambiguous_wall_distance_margin', 0.10
-        )
-        self.declare_parameter(
-            'trace_path', '/tmp/qmapnav/decision_trace.jsonl'
-        )
-        self.declare_parameter('trace_max_queue_size', 512)
-        self.declare_parameter('trace_max_file_bytes', 4 * 1024 * 1024)
-        self.declare_parameter('trace_flush_timeout', 1.0)
-
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds / 1_000_000_000.0
 
@@ -2905,152 +1632,6 @@ class QMapNavNode(Node):
         if state in {'complete', 'failed', 'cancelled'}:
             return state
         return None
-
-
-def _decode_image_rgb(message: Image) -> np.ndarray:
-    """Decode contiguous/padded RGB8 or BGR8 ROS images without CvBridge."""
-    if message.encoding not in {'rgb8', 'bgr8'}:
-        raise ValueError(f'unsupported camera encoding {message.encoding!r}')
-    if message.height < 2 or message.width < 2:
-        raise ValueError('camera image dimensions must be at least 2 x 2')
-    minimum_step = message.width * 3
-    if message.step < minimum_step:
-        raise ValueError('camera image step is smaller than packed RGB data')
-    data = np.frombuffer(message.data, dtype=np.uint8)
-    expected_size = message.height * message.step
-    if data.size != expected_size:
-        raise ValueError('camera image data size does not match height and step')
-    rows = data.reshape((message.height, message.step))
-    image = rows[:, :minimum_step].reshape((message.height, message.width, 3))
-    if message.encoding == 'bgr8':
-        image = image[..., ::-1]
-    return np.ascontiguousarray(image)
-
-
-def _crop_detection(
-    panorama_rgb: np.ndarray,
-    detection: Detection2D,
-) -> np.ndarray | None:
-    """Return a bounded wrap-aware panorama crop for best-view memory."""
-    image = np.asarray(panorama_rgb)
-    y_min = max(0, int(np.floor(detection.panorama_box.y_min)))
-    y_max = min(image.shape[0], int(np.ceil(detection.panorama_box.y_max)))
-    if y_max <= y_min:
-        return None
-    pieces = []
-    for x_min, x_max in detection.panorama_box.x_intervals:
-        left = max(0, int(np.floor(x_min)))
-        right = min(image.shape[1], int(np.ceil(x_max)))
-        if right > left:
-            pieces.append(image[y_min:y_max, left:right])
-    if not pieces:
-        return None
-    return np.ascontiguousarray(np.concatenate(pieces, axis=1)).copy()
-
-
-def _lifting_projection_uv(
-    result: ProjectionFrame,
-    source: GeometrySource,
-) -> np.ndarray:
-    """Return panorama coordinates indexed by lifted candidate support."""
-    if source is GeometrySource.CURRENT:
-        return result.current.panorama_uv
-    if source is GeometrySource.ACCUMULATED:
-        return result.accumulated.panorama_uv
-    if source is GeometrySource.COMBINED:
-        return np.vstack((
-            result.current.panorama_uv,
-            result.accumulated.panorama_uv,
-        ))
-    raise ValueError(f'unsupported lifting source {source!r}')
-
-
-def _crop_colour_support(
-    panorama_shape: tuple[int, int],
-    detection: Detection2D,
-    geometry_panorama_uv: np.ndarray,
-) -> tuple[np.ndarray | None, np.ndarray]:
-    """Crop the owning segmentation mask and map cluster UV into crop space."""
-    height, width = panorama_shape
-    y_min = max(0, int(np.floor(detection.panorama_box.y_min)))
-    y_max = min(height, int(np.ceil(detection.panorama_box.y_max)))
-    polygons = detection.metadata.get('mask_polygons_panorama_uv', ())
-    panorama_mask = None
-    if polygons:
-        panorama_mask = np.zeros((height, width), dtype=np.uint8)
-        valid_polygons = []
-        for polygon in polygons:
-            points = np.asarray(polygon, dtype=np.float64)
-            if points.ndim == 2 and points.shape[0] >= 3 and points.shape[1] == 2:
-                valid_polygons.append(np.rint(points).astype(np.int32))
-        if valid_polygons:
-            cv2.fillPoly(panorama_mask, valid_polygons, 1)
-        else:
-            panorama_mask = None
-    mask_pieces = []
-    local_support = []
-    x_offset = 0
-    support = np.asarray(geometry_panorama_uv, dtype=np.float64)
-    for x_min, x_max in detection.panorama_box.x_intervals:
-        left = max(0, int(np.floor(x_min)))
-        right = min(width, int(np.ceil(x_max)))
-        if right <= left:
-            continue
-        if panorama_mask is not None:
-            mask_pieces.append(panorama_mask[y_min:y_max, left:right])
-        if support.size:
-            keep = (
-                (support[:, 0] >= left) & (support[:, 0] < right)
-                & (support[:, 1] >= y_min) & (support[:, 1] < y_max)
-            )
-            if np.any(keep):
-                local = support[keep].copy()
-                local[:, 0] = local[:, 0] - left + x_offset
-                local[:, 1] -= y_min
-                local_support.append(local)
-        x_offset += right - left
-    cropped_mask = (
-        np.concatenate(mask_pieces, axis=1).astype(np.bool_)
-        if mask_pieces else None
-    )
-    support_uv = (
-        np.vstack(local_support)
-        if local_support else np.empty((0, 2), dtype=np.float64)
-    )
-    return cropped_mask, support_uv
-
-
-def _best_crop_score(
-    candidate: ObjectCandidate3D,
-    detection: Detection2D | None,
-    crop: np.ndarray | None,
-) -> float:
-    """Score crop evidence from detection, geometry, area, and point support."""
-    if detection is None or crop is None or crop.size == 0:
-        return 0.0
-    area_score = min(1.0, float(np.sqrt(crop.shape[0] * crop.shape[1])) / 300.0)
-    support_score = min(1.0, candidate.point_count / 100.0)
-    score = (
-        0.45 * detection.confidence
-        + 0.35 * candidate.geometry_confidence
-        + 0.10 * area_score
-        + 0.10 * support_score
-    )
-    return min(1.0, max(0.0, float(score)))
-
-
-def _atomic_write_json(path: Path, payload: object) -> None:
-    """Write one bounded diagnostic JSON file without partial replacement."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f'.{path.name}.tmp')
-    try:
-        with temporary.open('w', encoding='utf-8') as stream:
-            json.dump(payload, stream, indent=2, sort_keys=True)
-            stream.write('\n')
-        temporary.replace(path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
 
 
 def main(args: list[str] | None = None) -> None:

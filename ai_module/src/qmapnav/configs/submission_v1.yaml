@@ -82,10 +82,6 @@ qmapnav:
     projection_shutdown_timeout: 2.0
     projection_debug_directory: ''
     projection_max_saved_frames: 5
-    projection_regression_category: ''
-    projection_regression_scene_id: unknown
-    projection_regression_pose_id: unknown
-    projection_regression_notes: Live camera-LiDAR alignment regression.
 
     # Lifting and OBB policy.
     lifting_source: accumulated

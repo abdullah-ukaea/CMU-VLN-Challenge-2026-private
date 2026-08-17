@@ -11,20 +11,32 @@ PACKAGE_ROOT = Path(__file__).parents[1]
 
 def _declared_parameters() -> set[str]:
     tree = ast.parse(
-        (PACKAGE_ROOT / 'qmapnav/mission/node.py').read_text(encoding='utf-8')
-    )
-    return {
-        call.args[0].value
-        for call in ast.walk(tree)
-        if (
-            isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Attribute)
-            and call.func.attr == 'declare_parameter'
-            and call.args
-            and isinstance(call.args[0], ast.Constant)
-            and isinstance(call.args[0].value, str)
+        (PACKAGE_ROOT / 'qmapnav/mission/runtime_config.py').read_text(
+            encoding='utf-8'
         )
-    }
+    )
+    for statement in ast.walk(tree):
+        if not (
+            isinstance(statement, ast.Assign)
+            and any(
+                isinstance(target, ast.Name)
+                and target.id == 'declarations'
+                for target in statement.targets
+            )
+            and isinstance(statement.value, ast.Tuple)
+        ):
+            continue
+        return {
+            item.elts[0].value
+            for item in statement.value.elts
+            if (
+                isinstance(item, ast.Tuple)
+                and item.elts
+                and isinstance(item.elts[0], ast.Constant)
+                and isinstance(item.elts[0].value, str)
+            )
+        }
+    raise AssertionError('runtime parameter declarations are missing')
 
 
 def test_submission_config_freezes_every_runtime_parameter() -> None:
