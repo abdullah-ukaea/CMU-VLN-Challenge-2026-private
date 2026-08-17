@@ -1,0 +1,6 @@
+# Detector-only dependencies. Keep qmapnav's core NumPy geometry usable
+# without importing or loading the heavyweight optional runtime.
+numpy==1.26.4
+opencv-python==4.10.0.84
+ultralytics==8.3.162
+git+https://github.com/ultralytics/CLIP.git@488e81a6711eea7346872b46ea928b367da8889d

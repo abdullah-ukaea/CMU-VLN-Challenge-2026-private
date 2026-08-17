@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "fit_scenes": [
+    "arabic_room",
+    "chinese_room",
+    "home_building_1",
+    "home_building_2",
+    "hotel_room_2",
+    "japanese_room",
+    "livingroom_1",
+    "livingroom_2",
+    "livingroom_3",
+    "livingroom_4",
+    "loft",
+    "studio"
+  ],
+  "held_out_scenes": [
+    "hotel_room_1",
+    "office_1",
+    "office_2"
+  ],
+  "raw_to_canonical": {
+    "aqua": "blue",
+    "black": "black",
+    "blue": "blue",
+    "brown": "brown",
+    "gray": "grey",
+    "grey": "grey",
+    "green": "green",
+    "maroon": "red",
+    "navy": "blue",
+    "olive": "green",
+    "orange": "orange",
+    "pink": "pink",
+    "purple": "purple",
+    "red": "red",
+    "yellow": "yellow"
+  },
+  "white_policy": "No released VLA palette row is labelled white; derive white only from the brightest 5% tail of fit-scene grey metadata, capped at CIELAB L*=82, and retain white as a distinct query class.",
+  "selection_reason": "Scene-disjoint split retains every released raw colour in fitting data and holds out the primary Office 1 scene plus two lighting and colour-diverse scenes."
+}
