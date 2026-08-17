@@ -105,7 +105,9 @@ def test_node_commits_persistent_object_with_matching_waypoint(node) -> None:
     assert (waypoint.x, waypoint.y) == (1.0, 2.0)
 
 
-def test_node_loads_day9_policy_and_system_robot_footprint(node: object) -> None:
+def test_node_loads_reasoning_policy_and_system_robot_footprint(
+    node: object,
+) -> None:
     assert node._reasoning_candidate_config.minimum_class_probability == 0.15
     assert node._reasoning_spatial_config.near_size_scale == 0.75
     assert node._reasoning_ambiguity_config.resolved_minimum_margin == 0.12
@@ -139,7 +141,9 @@ def test_colour_support_crop_keeps_own_mask_and_cluster_coordinates() -> None:
     assert support.tolist() == [[5.0, 5.0]]
 
 
-def test_node_resets_day7_maps_without_touching_frozen_protocol(node: object) -> None:
+def test_node_resets_persistent_maps_without_touching_frozen_protocol(
+    node: object,
+) -> None:
     node._persistent_path_xy.append((1.0, 2.0))
     node.reset_persistent_maps()
 

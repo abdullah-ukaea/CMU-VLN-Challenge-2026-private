@@ -1,4 +1,4 @@
-"""Tests for composing Day 6 lifting over Day 5 projection frames."""
+"""Tests for composing lifting over projection frames."""
 
 import numpy as np
 import pytest

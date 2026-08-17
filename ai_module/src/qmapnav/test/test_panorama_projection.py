@@ -1,4 +1,4 @@
-"""Tests for Day 4 panorama, perspective, and camera-ray geometry."""
+"""Tests for panorama, perspective, and camera-ray geometry."""
 
 from math import pi
 

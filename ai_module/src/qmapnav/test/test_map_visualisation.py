@@ -1,4 +1,4 @@
-"""Saved top-down Day 7 object and structural map diagnostics."""
+"""Saved top-down object and structural map diagnostics."""
 
 import numpy as np
 

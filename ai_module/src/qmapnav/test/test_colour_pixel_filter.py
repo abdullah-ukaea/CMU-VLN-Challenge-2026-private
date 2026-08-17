@@ -1,4 +1,4 @@
-"""Tests for spatial and photometric Day 8 pixel filtering."""
+"""Tests for spatial and photometric pixel filtering."""
 
 import numpy as np
 

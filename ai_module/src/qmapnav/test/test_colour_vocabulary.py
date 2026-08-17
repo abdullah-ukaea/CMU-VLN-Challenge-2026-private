@@ -1,4 +1,4 @@
-"""Tests for the shared Day 8 colour vocabulary and split audit."""
+"""Tests for the shared colour vocabulary and split audit."""
 
 from collections import Counter
 import csv
