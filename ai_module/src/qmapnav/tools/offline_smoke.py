@@ -39,6 +39,8 @@ def main() -> None:
         1920,
         640,
         checkpoint=arguments.checkpoint,
+        device=arguments.device,
+        half_precision=arguments.device != 'cpu',
     )
     model_loaded_at = perf_counter()
     perception = worker.process(PerceptionRequest(

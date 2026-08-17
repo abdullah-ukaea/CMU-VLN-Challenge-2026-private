@@ -1,6 +1,6 @@
 qmapnav:
   ros__parameters:
-    # Frozen Day 1 protocol and episode bounds.
+    # Waypoint protocol and episode bounds.
     arrival_radius: 0.75
     progress_epsilon: 0.15
     no_progress_timeout: 12.0
@@ -11,14 +11,14 @@ qmapnav:
     recovery_clearance: 0.35
     episode_time_limit: 600.0
 
-    # Measured Day 4 detector baseline. Both checkpoints are image assets.
+    # Detector baseline (measured). Both checkpoints are image assets.
     detector_checkpoint: /home/docker/models/yoloe-11s-seg.pt
     detector_confidence_threshold: 0.20
     detector_cross_crop_iou_threshold: 0.40
     panorama_width: 1920
     panorama_height: 640
 
-    # Day 12 persistent-ID count commitment.
+    # Numerical commitment policy.
     numerical_required_consecutive_updates: 3
     numerical_required_independent_viewpoints: 2
     numerical_minimum_count_confidence: 0.50
@@ -26,7 +26,7 @@ qmapnav:
     numerical_final_commit_reserve_sec: 30.0
     numerical_maximum_verification_sec: 180.0
 
-    # Day 12.1 live two-stage instruction composition.
+    # Instruction composition.
     instruction_initial_observations: 3
     instruction_reobservation_observations: 3
     instruction_grid_half_extent_m: 10.0
@@ -35,7 +35,7 @@ qmapnav:
     instruction_waypoint_spacing_m: 1.0
     instruction_final_route_reserve_sec: 300.0
 
-    # Day 10 object answer policy and bounded re-observation.
+    # Object-reference answer policy and bounded re-observation.
     publish_object_matching_waypoint: true
     object_reference_initial_observations: 3
     object_reference_final_commit_reserve_sec: 30.0
@@ -87,7 +87,7 @@ qmapnav:
     projection_regression_pose_id: unknown
     projection_regression_notes: Live camera-LiDAR alignment regression.
 
-    # Day 6 lifting and OBB policy.
+    # Lifting and OBB policy.
     lifting_source: accumulated
     lifting_use_masks: false
     lifting_bbox_inner_margin: 0.05
@@ -105,7 +105,7 @@ qmapnav:
     lifting_orientation_high_confidence: 0.70
     lifting_sparse_point_threshold: 8
 
-    # Day 7 persistent object association.
+    # Persistent object association.
     object_map_accept_threshold: 0.62
     object_map_uncertain_threshold: 0.55
     object_map_yaw_confidence_threshold: 0.50
@@ -116,7 +116,7 @@ qmapnav:
     object_map_max_total_points: 500000
     object_map_max_observation_history: 100
 
-    # Day 8 colour calibration and fusion. Empty path resolves to package data.
+    # Colour calibration and fusion. Empty path resolves to package data.
     colour_prototype_path: ''
     colour_min_valid_pixels: 50
     colour_mask_erosion_px: 3
@@ -132,7 +132,7 @@ qmapnav:
     colour_max_fused_evidence: 12.0
     colour_max_observation_history: 32
 
-    # Day 8/9 relations and complete-hypothesis resolution.
+    # Relations and complete-hypothesis resolution.
     relation_above_vertical_tolerance: 0.08
     relation_maximum_support_gap: 0.15
     relation_penetration_tolerance: 0.08

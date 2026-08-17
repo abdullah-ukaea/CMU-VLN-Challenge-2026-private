@@ -2496,14 +2496,14 @@ class QMapNavNode(Node):
         if value:
             return Path(value)
         source_path = Path(__file__).resolve().parents[2] / (
-            'benchmark/day8_colour_prototypes.json'
+            'data/colour_prototypes.json'
         )
         if source_path.exists():
             return source_path
         from ament_index_python.packages import get_package_share_directory
 
         return Path(get_package_share_directory('qmapnav')) / (
-            'benchmark/day8_colour_prototypes.json'
+            'data/colour_prototypes.json'
         )
 
     def _create_colour_selection_config(self) -> ColourSelectionConfig:

@@ -1,6 +1,6 @@
 FROM zhangjicmu/ubuntu24_ros:ai_module
 
-# Install the two bounded Day 4 detector runtimes. PyTorch is pinned to a
+# Install the bounded detector runtime. PyTorch is pinned to a
 # Python 3.12 CUDA wheel; the host driver may be newer because NVIDIA drivers
 # retain compatibility with older CUDA runtimes.
 USER root
@@ -21,7 +21,7 @@ RUN python3 -m pip install \
       --no-cache-dir \
       -r /tmp/qmapnav-requirements-detectors.txt
 
-# The measured Day 4 winner must not download weights during an episode.
+# The selected detector must not download weights during an episode.
 # Keep both its visual checkpoint and prompt encoder in a fixed image path.
 RUN mkdir -p /home/docker/models
 WORKDIR /home/docker/models

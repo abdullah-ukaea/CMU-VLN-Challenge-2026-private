@@ -21,6 +21,8 @@ def make_default_perception_worker(
     checkpoint: str | Path = DEFAULT_DETECTOR_CHECKPOINT,
     confidence_threshold: float = DEFAULT_DETECTOR_CONFIDENCE,
     cross_crop_iou_threshold: float = DEFAULT_CROSS_CROP_IOU,
+    device: str = 'cuda:0',
+    half_precision: bool = True,
 ) -> PerceptionWorker:
     """Construct the selected eight-crop compact-YOLOE worker."""
     camera_model = PanoramaCameraModel(panorama_width, panorama_height)
@@ -28,7 +30,11 @@ def make_default_perception_worker(
         camera_model,
         eight_view_layout(),
     )
-    detector = YOLOEDetector(checkpoint)
+    detector = YOLOEDetector(
+        checkpoint,
+        device=device,
+        half_precision=half_precision,
+    )
     return PerceptionWorker(
         crop_generator,
         detector,

@@ -20,14 +20,8 @@ setup(
             ['configs/submission_v1.yaml'],
         ),
         (
-            f'share/{PACKAGE_NAME}/benchmark',
-            [
-                'benchmark/day8_colour_prototypes.json',
-                'benchmark/day8_colour_heldout_report.json',
-                'benchmark/day8_colour_inventory.json',
-                'benchmark/day8_relation_report.json',
-                'benchmark/day8_colour_split.json',
-            ],
+            f'share/{PACKAGE_NAME}/data',
+            ['data/colour_prototypes.json'],
         ),
     ],
     install_requires=['numpy', 'setuptools'],

@@ -76,7 +76,7 @@ def main() -> None:
         ),
         inspect_asset(
             'colour_prototypes',
-            share / 'benchmark' / 'day8_colour_prototypes.json',
+            share / 'data' / 'colour_prototypes.json',
             _load_json,
         ),
         inspect_asset(
