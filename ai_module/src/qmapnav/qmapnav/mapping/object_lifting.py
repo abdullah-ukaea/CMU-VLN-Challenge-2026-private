@@ -44,7 +44,7 @@ FLOOR_STANDING_CLASSES = frozenset(
 
 @dataclass(frozen=True)
 class ObjectLiftingConfig:
-    """Validated policy for one Day 6 lifting observation."""
+    """Validated policy for one lifting lifting observation."""
 
     selection: PointSelectionConfig = PointSelectionConfig()
     depth: DepthFilterConfig = DepthFilterConfig()
@@ -74,7 +74,7 @@ class ObjectLiftingConfig:
 
 
 class ObjectLifter:
-    """Lift one Day 4 detection from one Day 5 projected cloud."""
+    """Lift one perception detection from one projection projected cloud."""
 
     def __init__(self, config: ObjectLiftingConfig | None = None) -> None:
         self.config = config or ObjectLiftingConfig()

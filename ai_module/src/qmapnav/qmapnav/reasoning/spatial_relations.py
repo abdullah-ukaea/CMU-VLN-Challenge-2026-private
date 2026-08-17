@@ -13,7 +13,7 @@ from qmapnav.reasoning.support_geometry import SupportGeometry
 
 @dataclass(frozen=True)
 class SpatialRelationConfig:
-    """Tunable Day 9 geometric relation policy."""
+    """Tunable reasoning geometric relation policy."""
 
     minimum_geometry_confidence: float = 0.20
     near_base_margin_m: float = 0.40

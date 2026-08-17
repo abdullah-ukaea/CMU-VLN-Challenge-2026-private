@@ -1,165 +1,121 @@
 # Q-MapNav
 
-Q-MapNav is the competition AI package for the CMU Vision-Language-Navigation
-Challenge 2026. It is a ROS 2 Jazzy `ament_python` package.
+Q-MapNav is a ROS 2 Jazzy `ament_python` package for query-conditioned
+vision-language navigation. It turns a latched challenge question and live
+sensor streams into bounded semantic maps, task-specific decisions, and the
+official ROS outputs. Runtime algorithms are ROS-independent; `mission` is the
+composition and transport boundary.
 
-The package includes the deterministic language layer, bounded sequential
-waypoint execution, registered-scan maps, observational decision tracing, Day
-4 panoramic perception, and the Day 5 source-time camera-LiDAR projection and
-rolling densification path. Day 6 adds single-observation point cleaning,
-distance-aware clustering, robust AABB/upright-OBB estimation, orientation
-confidence, and strictly separated debug/final marker adapters.
-Day 7 adds persistent episode-local object identities, bounded cross-view
-evidence fusion, wall extraction, and ray-to-wall structural anchors.
-Day 8 adds mask/geometry-supported HSV-Lab colour probabilities, bounded
-multi-view colour fusion, and map-frame vertical and physical-support relations
-with contradiction checks and separate debug visualisation.
-Day 9 adds persistent-map candidate generation, footprint-aware spatial
-relations, physically checked between-gates, complete joint hypothesis scoring,
-and explicit confidence margins and ambiguity states.
+## Data flow
 
-Day 3 development infrastructure adds validated adapters for released
-questions, Unity object lists and ZIPs, VLA-3D object/colour/relation metadata,
-reference trajectories, and answer evidence. The oracle layer resolves counts
-and object references and plans ordered semantic routes from perfect objects.
-The evaluation harness measures answer, relation, route, and timing proxies in
-quick or full regression modes without fabricating missing answer labels.
+```text
+question ─► language parser ─► task specification
+                                │
+camera ─► perception ─► projection/lifting ─► object + structural maps
+scan ────────────────────────────────────────┘             │
+                                                          ▼
+                         reasoning/counting/exploration/navigation
+                                                          │
+                              mission coordinators ─► ROS outputs + trace
+```
 
-## Package Structure
+The system supports numerical counting, object-reference resolution, and the
+bounded instruction-following route currently defined by the frozen protocol.
+Every buffer, map, retry, and episode decision has an explicit bound and emits
+a best-effort result on failure.
+
+## Package map
 
 ```text
 qmapnav/
-  common/       Shared domain models, geometry, and configuration
-  language/     Full and degraded deterministic parsing
-  perception/   Query-conditioned visual observation
-  mapping/      Object, structure, and occupancy maps
-  reasoning/    Spatial predicates and task resolution
-  navigation/   Semantic planning and waypoint execution
-  mission/      Episode lifecycle and subsystem composition
-  evaluation/   Decision traces, metrics, and regression support
+  common/       Frozen contracts, colours, and decision traces
+  language/     Deterministic full and degraded question parsing
+  perception/   Panorama crops, detector adapters, and visual evidence
+  mapping/      Projection, lifting, object identity, structure, and grids
+  reasoning/    Candidate generation, colours, relations, and resolution
+  counting/     Persistent-ID numerical answers and stability
+  exploration/  Viewpoint generation, scoring, and support search
+  navigation/   Semantic regions, route planning, and waypoint execution
+  mission/      ROS transport, configuration, perception runtime, and episodes
+  evaluation/   Offline oracle and replay harnesses
 ```
 
-The dependency direction is toward shared contracts and the `mission`
-composition root:
+`common` has no dependency on another Q-MapNav package. Runtime packages do
+not import `evaluation`; the evaluation package is development-only. ROS
+transport is confined to `mission`, and all domain components remain directly
+unit-testable.
 
-- `common` must not depend on another Q-MapNav subsystem.
-- `language`, `perception`, and `mapping` expose data through `common` contracts.
-- `reasoning` consumes language and map outputs without owning ROS transport.
-- `navigation` consumes resolved tasks and map state without owning perception.
-- `mission` is the only layer that composes the complete runtime workflow.
-- `evaluation` observes stable outputs and must not control production behavior.
+## Contracts and frames
 
-These boundaries keep offline tests independent from ROS orchestration and avoid
-circular subsystem dependencies.
-
-## Shared Contracts
-
-The frozen subsystem interfaces are exported from `qmapnav.common`:
-
-- `TaskSpecification` and its language-supporting types;
-- `ObjectInstance`;
-- `ResolvedTask` and `ResolvedConstraint`;
-- `EpisodeResult`.
-
-Field semantics, units, coordinate conventions and validation rules are defined
-in [`docs/contracts.md`](docs/contracts.md). Treat changes to these types as API
-changes that require corresponding producer, consumer and regression updates.
-
-## Language Parser
-
-The ROS-independent language subsystem provides deterministic task
-classification, span-aware feature extraction, full parsing into the frozen
-`TaskSpecification`, and a degraded parser for partial recovery. Its supported
-grammar, public API, normalized route actions, and fallback behavior are
-documented in [`docs/parser.md`](docs/parser.md).
-
-## Protocol Execution
-
-The mission node latches the first valid challenge question, suppresses repeats,
-and adapts the ROS-independent sequential waypoint executor to the official
-question, odometry, and waypoint topics. Progress monitoring, bounded recovery,
-and pose-hold cancellation are documented in
+The public data contracts, units, timestamps, and map-frame conventions are in
+[`docs/contracts.md`](docs/contracts.md) and [`docs/frames.md`](docs/frames.md).
+The parser grammar is documented in [`docs/parser.md`](docs/parser.md). The
+official topics, question latch, and sequential waypoint protocol are in
 [`docs/execution.md`](docs/execution.md).
 
-The bounded map-frame registered-scan foundation and its conservative
-safe-offset policy are documented in [`docs/mapping.md`](docs/mapping.md).
-Versioned, bounded asynchronous JSONL traces are documented in
-[`docs/tracing.md`](docs/tracing.md).
+## Build and launch
 
-The development-only normalized ground-truth records, source validation,
-selective VLA-3D metadata retrieval, and answer provenance rules are documented
-in [`docs/ground_truth.md`](docs/ground_truth.md).
-
-Perfect-object candidate reasoning, semantic floor geometry, and the oracle
-grid route planner are documented in
-[`docs/oracle_reasoning.md`](docs/oracle_reasoning.md).
-
-Proxy metric definitions, answer-provenance policy, report files, and quick/full
-regression commands are documented in
-[`docs/evaluation.md`](docs/evaluation.md).
-
-The Day 4 panorama/camera-ray convention, overlapping perspective layout, and
-seam-aware perception worker are documented in
-[`docs/perception.md`](docs/perception.md).
-The measured two-candidate bake-off and selected YOLOE baseline are recorded in
-[`docs/day_4_detector_decision.md`](docs/day_4_detector_decision.md).
-
-The measured map/sensor/camera frame chain is frozen in
-[`docs/day_5_frames.md`](docs/day_5_frames.md). Source-time association,
-current and accumulated projection, detection support, overlays, and the
-five-case regression pack are documented in
-[`docs/projection.md`](docs/projection.md).
-
-Day 6 detection-to-geometry contracts, cleaning and clustering policy,
-confidence-aware upright boxes, marker safety boundary, measured box-versus-mask
-decision, and saved simulator regressions are documented in
-[`docs/day_6_lifting.md`](docs/day_6_lifting.md).
-
-Day 7 object association, one-to-one duplicate prevention, bounded fusion,
-walls, structural anchors, debug topics, metrics, and regressions are documented
-in [`docs/day_7_mapping.md`](docs/day_7_mapping.md).
-
-Day 8 colour vocabulary, pixel reliability, fitted prototypes, held-out
-metrics, support geometry, relation semantics, graph consistency, and debug
-outputs are documented in
-[`docs/day_8_colour_relations.md`](docs/day_8_colour_relations.md).
-
-Day 9 resolution contracts, candidate/set enumeration, spatial predicates,
-physical corridor checks, full-hypothesis scoring, ambiguity policy, runtime
-parameters, diagnostics, and Office 1 evidence are documented in
-[`docs/day_9_spatial_reasoning.md`](docs/day_9_spatial_reasoning.md).
-
-## Build
-
-From `/home/docker/ai_module` in the AI container:
+Inside the competition AI container:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
+cd /home/docker/ai_module
 colcon build --packages-select qmapnav
 source install/setup.bash
-```
-
-## Launch
-
-```bash
 ros2 launch qmapnav qmapnav.launch.py
 ```
 
-The launch file currently starts only the composition node. Runtime components
-will be added behind the frozen module boundaries in their scheduled tasks.
+The frozen submission configuration is
+[`configs/submission_v1.yaml`](configs/submission_v1.yaml). It preserves the
+official topic names and all runtime parameter keys. Detector weights and the
+runtime colour prototypes are resolved from the packaged data directory;
+network access is not required during an episode.
 
-## Test
+## Tests
 
 ```bash
 colcon test --packages-select qmapnav
 colcon test-result --verbose
 ```
 
-## Oracle Regression
+The suite protects contracts and behavior rather than development milestones.
+It includes parser-corpus checks, frame mutation tests, map identity
+regressions, counting stability, instruction exit scenarios, and the offline
+evaluation harness.
 
-With the released scene and VLA-3D metadata available in the workspace:
+## Offline evaluation
+
+The evaluation harness uses released questions and local simulation/VLA-3D
+metadata. It never controls ROS and never fabricates unavailable answer labels.
+From the repository root, run:
 
 ```bash
-ros2 run qmapnav qmapnav_benchmark --mode quick
-ros2 run qmapnav qmapnav_benchmark --mode full
+python3 -m qmapnav.evaluation.benchmark_runner --mode quick
+python3 -m qmapnav.evaluation.benchmark_runner --mode full
+python3 -c 'from qmapnav.evaluation.numerical_benchmark import main; main()' \
+  --questions questions/questions.json \
+  --simulation-root ../simulation \
+  --vla-root ../data/vla3d \
+  --output-directory /tmp/qmapnav/numerical
+python3 -m qmapnav.evaluation.object_reference_replay --mode quick \
+  --questions-path questions/questions.json \
+  --simulation-root ../simulation \
+  --vla-root ../data/vla3d \
+  --output-root /tmp/qmapnav/object_reference
 ```
+
+Installed workspaces expose the same harnesses as
+`qmapnav_benchmark`, `qmapnav_numerical_benchmark`, and
+`qmapnav_object_benchmark`. Reports contain summaries, per-question results,
+failure categories, parser audits, and route or marker evidence. See
+[`docs/evaluation.md`](docs/evaluation.md) and
+[`docs/ground_truth.md`](docs/ground_truth.md) for input and output contracts.
+
+## Runtime subsystem references
+
+- [`docs/perception.md`](docs/perception.md): panorama geometry and detector selection.
+- [`docs/frames.md`](docs/frames.md): camera, LiDAR, pose, and timestamp transforms.
+- [`docs/projection.md`](docs/projection.md): source-time projection and densification.
+- [`docs/mapping.md`](docs/mapping.md): lifting, identity fusion, structure, and occupancy.
+- [`docs/reasoning.md`](docs/reasoning.md): colour, support relations, and resolution.
+- [`docs/tracing.md`](docs/tracing.md): bounded JSONL decision traces.

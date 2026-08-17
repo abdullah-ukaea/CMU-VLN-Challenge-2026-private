@@ -89,7 +89,7 @@ def eight_view_layout(
     pitch_rad: float = 0.0,
 ) -> PerspectiveCropLayout:
     """
-    Create the initial eight-yaw, one-row Day 4 layout.
+    Create the initial eight-yaw, one-row perception layout.
 
     Sixty-degree horizontal views spaced every 45 degrees produce 25 percent
     horizontal overlap. The initial 90-degree vertical view covers the useful

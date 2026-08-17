@@ -1,4 +1,4 @@
-"""Complete Day 10 object-reference resolution over persistent maps."""
+"""Complete object-reference object-reference resolution over persistent maps."""
 
 from dataclasses import dataclass
 from dataclasses import replace

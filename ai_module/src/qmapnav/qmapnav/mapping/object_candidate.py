@@ -10,7 +10,7 @@ import numpy as np
 
 
 class GeometryStatus(str, Enum):
-    """Outcome of one Day 6 lifting attempt."""
+    """Outcome of one lifting lifting attempt."""
 
     GOOD = 'good'
     SPARSE = 'sparse'

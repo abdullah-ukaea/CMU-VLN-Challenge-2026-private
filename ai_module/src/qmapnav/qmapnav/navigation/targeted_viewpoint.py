@@ -1,4 +1,4 @@
-"""One-shot heuristic re-observation for Day 10 object references."""
+"""One-shot heuristic re-observation for object-reference object references."""
 
 from dataclasses import dataclass
 from math import atan2

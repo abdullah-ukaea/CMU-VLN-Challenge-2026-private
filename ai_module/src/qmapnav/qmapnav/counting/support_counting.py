@@ -1,4 +1,4 @@
-"""Thin counting wrapper over Day 11 support-surface exploration."""
+"""Thin counting wrapper over instruction support-surface exploration."""
 
 from dataclasses import dataclass
 from dataclasses import replace
@@ -142,7 +142,7 @@ def counting_support_viewpoints(
     visited: tuple[VisitedViewpoint, ...] = (),
     max_travel_m: float | None = None,
 ) -> CandidateGenerationOutcome:
-    """Reuse Day 11 ranking and viewpoint generation for the next support."""
+    """Reuse instruction ranking and viewpoint generation for the next support."""
     assessment = assess_counting_supports(target_class, object_map, history)
     by_id = {
         str(item.instance_id): item for item in object_map.active_instances()

@@ -1,10 +1,10 @@
 """
 Three-state planar occupancy used for visibility and frontier reasoning.
 
-The persistent Day 2 scan accumulator proves cells *free* or *occupied*; every
+The persistent protocol scan accumulator proves cells *free* or *occupied*; every
 other cell is genuinely *unknown*. Frontier extraction and unexplored-area
 scoring both need that third state, so exploration rasterizes a bounded local
-window rather than reusing the binary Day 3 planning grid.
+window rather than reusing the binary evaluation planning grid.
 """
 
 from collections import deque

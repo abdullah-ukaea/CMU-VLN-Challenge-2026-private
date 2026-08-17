@@ -259,7 +259,7 @@ class StageEvidence:
 
 @dataclass(frozen=True)
 class ObjectReferenceEpisodeResult:
-    """One terminal Day 10 response with full pipeline diagnostics."""
+    """One terminal object-reference response with full pipeline diagnostics."""
 
     run_id: str
     case_id: str
@@ -406,7 +406,7 @@ def build_object_reference_manifest(
     questions: tuple[Any, ...],
     parser,
 ) -> tuple[ObjectReferenceCase, ...]:
-    """Build the exact released Day 10 case list in source order."""
+    """Build the exact released object-reference case list in source order."""
     selected = tuple(
         item for item in questions if item.task_type == 'object_reference'
     )

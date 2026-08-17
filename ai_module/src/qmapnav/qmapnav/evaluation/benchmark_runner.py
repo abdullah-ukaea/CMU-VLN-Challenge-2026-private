@@ -1,4 +1,4 @@
-"""Offline quick and full regression harness for the Day 3 oracle system."""
+"""Offline quick and full regression harness for the evaluation oracle system."""
 
 from dataclasses import dataclass
 from enum import Enum

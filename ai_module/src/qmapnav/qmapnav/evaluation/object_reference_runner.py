@@ -1,4 +1,4 @@
-"""Resumable quick/full Day 10 object-reference benchmark runner."""
+"""Resumable quick/full object-reference object-reference benchmark runner."""
 
 from collections import Counter
 from dataclasses import asdict

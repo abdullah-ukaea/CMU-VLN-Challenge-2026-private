@@ -1,4 +1,4 @@
-# Day 5 Frame and Timestamp Contract
+# Camera, LiDAR, and Timestamp Frames
 
 This document records the measured Office 1 simulator contract used by the
 camera-LiDAR projection path. Frame direction is explicit; leading slashes in
@@ -17,7 +17,7 @@ system describes `/registered_scan` as registered by state estimation and its
 header is `map`; Q-MapNav therefore consumes its points as `p_map` and rejects
 any other header frame. The code does not claim that an individual sweep is
 internally motion compensated: that detail is not exposed by the interface.
-Static-scene alignment is the Day 5 empirical contract.
+Static-scene alignment is the projection empirical contract.
 
 The 113.18-second audit contains 448 images, 448 registered scans, and 22,371
 poses. Image-to-nearest-pose source delta is exactly `0 ms` for every image.
@@ -29,8 +29,8 @@ association.
 The source data and complete report are outside the submission repository:
 
 ```text
-/home/abdul/cmu-vln/data/day4/day5_office1_multi_pose/
-/home/abdul/cmu-vln/data/day4/day5_sensor_audit.json
+/home/abdul/cmu-vln//home/abdul/cmu-vln/data/perception/projection_multi_pose/
+/home/abdul/cmu-vln//home/abdul/cmu-vln/data/perception/projection_sensor_audit.json
 ```
 
 ## Axis conventions
@@ -43,7 +43,7 @@ ROS optical camera axes are:
 +Z forward
 ```
 
-The Day 4 panorama and robot-style sensor basis is:
+The perception panorama and robot-style sensor basis is:
 
 ```text
 +X forward

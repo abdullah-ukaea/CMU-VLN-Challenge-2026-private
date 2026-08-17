@@ -1,4 +1,4 @@
-"""Deterministic Day 4 crop, detection, merge, and ray visualisations."""
+"""Deterministic perception crop, detection, merge, and ray visualisations."""
 
 import json
 from pathlib import Path

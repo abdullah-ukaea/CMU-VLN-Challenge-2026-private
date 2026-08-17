@@ -99,7 +99,7 @@ class NumericalEpisodeCoordinator:
 
     @property
     def support_history(self) -> SupportSearchHistory:
-        """Expose target-specific Day 11 support-search memory."""
+        """Expose target-specific instruction support-search memory."""
         return self._support_history
 
     @property

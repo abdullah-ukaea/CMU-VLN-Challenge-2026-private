@@ -1,4 +1,4 @@
-"""Saved Day 8 object-pixel and probability diagnostics."""
+"""Saved colour object-pixel and probability diagnostics."""
 
 import json
 from pathlib import Path

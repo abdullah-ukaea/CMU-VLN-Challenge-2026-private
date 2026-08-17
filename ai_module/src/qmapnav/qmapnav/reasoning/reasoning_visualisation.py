@@ -1,4 +1,4 @@
-"""Bounded Day 9 reasoning tables, traces, and top-down diagnostics."""
+"""Bounded reasoning reasoning tables, traces, and top-down diagnostics."""
 
 import csv
 from dataclasses import dataclass

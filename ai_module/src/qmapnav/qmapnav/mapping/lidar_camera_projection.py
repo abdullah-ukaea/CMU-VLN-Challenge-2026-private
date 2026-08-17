@@ -136,7 +136,7 @@ class ProjectionResult:
 
 @dataclass(frozen=True)
 class CropProjection:
-    """Projected points visible inside one Day 4 perspective crop."""
+    """Projected points visible inside one perception perspective crop."""
 
     crop_id: int
     crop_uv: np.ndarray

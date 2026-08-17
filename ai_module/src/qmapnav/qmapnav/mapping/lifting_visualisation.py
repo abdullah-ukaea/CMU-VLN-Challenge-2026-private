@@ -1,4 +1,4 @@
-"""Deterministic Day 6 selection, depth, and box diagnostics."""
+"""Deterministic lifting selection, depth, and box diagnostics."""
 
 import cv2
 import numpy as np

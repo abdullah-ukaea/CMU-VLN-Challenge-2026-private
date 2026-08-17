@@ -1,4 +1,4 @@
-"""Bounded Day 10 object-reference episode decision coordinator."""
+"""Bounded object-reference object-reference episode decision coordinator."""
 
 from dataclasses import dataclass
 from enum import Enum

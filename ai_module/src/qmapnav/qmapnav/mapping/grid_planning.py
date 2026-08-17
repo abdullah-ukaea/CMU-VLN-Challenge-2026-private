@@ -1,7 +1,7 @@
 """
 Deterministic free-space search over the three-state exploration grid.
 
-The Day 3 planner owns its own binary ``PlanningGrid`` built from a perfect
+The evaluation planner owns its own binary ``PlanningGrid`` built from a perfect
 ``OracleScene``. Perceived exploration instead needs unknown-aware costs, so
 this module provides the equivalent eight-connected search over
 ``OccupancyGrid2D`` and is shared by viewpoint scoring and the perceived

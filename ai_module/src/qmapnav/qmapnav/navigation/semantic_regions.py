@@ -1,7 +1,7 @@
 """
 Semantic "near" regions and goal poses built from perceived objects.
 
-The Day 3 annulus geometry in :mod:`qmapnav.reasoning.semantic_geometry` is
+The evaluation annulus geometry in :mod:`qmapnav.reasoning.semantic_geometry` is
 reused verbatim: a perceived instance is adapted into the same box shape by
 :func:`qmapnav.mapping.perceived_geometry.perceived_box` rather than the
 polygon logic being duplicated for perceived maps.

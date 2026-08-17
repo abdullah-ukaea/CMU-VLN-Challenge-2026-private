@@ -1,4 +1,4 @@
-"""Compose Day 6 lifting over one immutable Day 5 projection frame."""
+"""Compose lifting lifting over one immutable projection projection frame."""
 
 from dataclasses import dataclass
 

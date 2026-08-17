@@ -1,7 +1,7 @@
 # Camera-LiDAR Projection and Rolling Densification
 
-Day 5 connects Day 4 panorama detections to map-frame geometry without making
-semantic point-membership or object-box claims. Those remain Day 6 work.
+projection connects perception panorama detections to map-frame geometry without making
+semantic point-membership or object-box claims. Those remain lifting work.
 
 ## Runtime flow
 
@@ -14,7 +14,7 @@ The mission node subscribes only to permitted challenge inputs:
 ```
 
 `ProjectionSynchronizer` associates an image with an exact/interpolated pose
-and nearest acceptable scan by source timestamp. `Day5ProjectionPipeline`
+and nearest acceptable scan by source timestamp. `projectionProjectionPipeline`
 projects both the current scan and a voxelized rolling snapshot using the same
 image-time transform. The current scan diagnoses timing/calibration; the
 accumulated scan diagnoses registration stability and densifies geometry.
@@ -25,13 +25,13 @@ clouds. Point transforms and angular projection are vectorized NumPy
 operations. A full panorama retains front and rear points; filtering uses
 Euclidean range and the verified 120-degree vertical coverage.
 
-`project_result_into_crops()` reuses Day 4 `PerspectiveGeometry`. Overlapping
+`project_result_into_crops()` reuses perception `PerspectiveGeometry`. Overlapping
 crops may legitimately contain the same source point, and panorama projection
 remains the global representation.
 
 ## Dense scan policy
 
-The Day 5 dense accumulator is separate from the conservative Day 2 navigation
+The projection dense accumulator is separate from the conservative protocol navigation
 map. Its measured defaults are:
 
 | Setting | Default |
@@ -55,11 +55,11 @@ The `0.04 m` snapshot was fastest (`0.836 s`), retained 33 percent more detail
 than `0.05 m`, and used 27 percent fewer voxels than `0.03 m`; visual replay
 still preserved desk, monitor, shelf, and chair geometry. The sweep peaked at
 264,080 KiB RSS while holding all three accumulators simultaneously. Results
-are in `/home/abdul/cmu-vln/data/day4/day5_voxel_sweep.json`.
+are in `/home/abdul/cmu-vln/data/perception/projection_voxel_sweep.json`.
 
 ## Detection support
 
-`DetectionProjection` summarizes points whose pixels fall inside a Day 4
+`DetectionProjection` summarizes points whose pixels fall inside a perception
 `Detection2D`; it does not assert those points belong to the object. It records:
 
 - point count and source projection indices;
@@ -90,7 +90,7 @@ The ROS node can save bounded debug frames using
 Real Office 1 examples are stored at:
 
 ```text
-/home/abdul/cmu-vln/data/day4/day5_regressions_multi_pose/
+/home/abdul/cmu-vln/data/perception/projection_regressions_multi_pose/
   nearby_furniture/   # pose B
   walls/              # pose A
   tabletop_objects/   # pose A
@@ -115,18 +115,18 @@ On the 10,619-point moving-pose case, pure panorama projection measured
 `4.17 ms` median, mapping into all eight crops `5.76 ms`, and a source-complete
 saved replay including I/O `36.93 ms`. Debug depth rendering measured
 `151.62 ms` and therefore remains outside ROS callbacks. The timing process
-peaked at 191,188 KiB RSS; the Day 4 exact-question detector allocated 64 MiB
+peaked at 191,188 KiB RSS; the perception exact-question detector allocated 64 MiB
 of CUDA memory after inference. Full measurements are in
-`/home/abdul/cmu-vln/data/day4/day5_projection_benchmark.json`.
+`/home/abdul/cmu-vln/data/perception/projection_projection_benchmark.json`.
 
 Development tools:
 
 ```bash
-python3 tools/day5_bag_audit.py BAG OUTPUT.json
-python3 tools/day5_extract_bag_regressions.py BAG OUTPUT_DIRECTORY
-python3 tools/day5_detection_overlay.py CASE_DIRECTORY
-python3 tools/day5_voxel_sweep.py BAG SUMMARY OUTPUT.json
-python3 tools/day5_projection_benchmark.py CASE OUTPUT.json
+python3 tools/external_projection_bag_audit.py BAG OUTPUT.json
+python3 tools/external_projection_replay.py BAG OUTPUT_DIRECTORY
+python3 tools/external_projection_overlay.py CASE_DIRECTORY
+python3 tools/external_projection_voxel_sweep.py BAG SUMMARY OUTPUT.json
+python3 tools/external_projection_benchmark.py CASE OUTPUT.json
 ```
 
 ## Failure behavior

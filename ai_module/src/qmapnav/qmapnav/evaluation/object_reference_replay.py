@@ -1,5 +1,5 @@
 """
-Annotated-map Day 10 benchmark and report generation.
+Annotated-map object-reference benchmark and report generation.
 
 This backend deliberately bypasses image detection and LiDAR lifting.  It
 injects released VLA3D boxes as one perfect observation through the production
@@ -522,7 +522,7 @@ def _write_report(directory, run, cases):
         item.to_dict() for item in ranked
     ])
     lines = [
-        '# Day 10 annotated-map object-reference benchmark', '',
+        '# object-reference annotated-map object-reference benchmark', '',
         '> Correctness labels here are development proxies derived from the same '
         'released VLA3D annotations. This run bypasses 2D detection and LiDAR '
         'lifting; it does not claim perceived-scene accuracy.', '',

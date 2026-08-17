@@ -1,4 +1,4 @@
-"""Pure Day 5 association, current projection, and accumulated projection flow."""
+"""Pure projection association, current projection, and accumulated projection flow."""
 
 from dataclasses import dataclass
 

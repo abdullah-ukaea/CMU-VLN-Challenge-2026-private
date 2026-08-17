@@ -26,7 +26,7 @@ class PanoramaCameraModel:
     and ``+Z`` up. Image ``v`` increases downward. ``u_yaw_sign=-1`` means
     image ``u`` increases toward camera right, which is decreasing yaw in this
     basis. The sign remains explicit because the physical camera convention
-    must be checked against saved challenge images before Day 5 calibration.
+    must be checked against saved challenge images before projection calibration.
     """
 
     width: int

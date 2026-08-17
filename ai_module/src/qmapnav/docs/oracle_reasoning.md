@@ -1,7 +1,7 @@
 # Oracle Reasoning And Semantic Planning
 
-The Day 3 oracle layer proves Q-MapNav task reasoning with released perfect
-objects while keeping perception out of the loop. It consumes the Day 2
+The evaluation oracle layer proves Q-MapNav task reasoning with released perfect
+objects while keeping perception out of the loop. It consumes the protocol
 `TaskSpecification` and the normalized `OracleScene`; it does not run in the
 hidden-scene perception path and does not contain expected answers.
 
@@ -111,7 +111,7 @@ geometry, oversized grids, and unreachable regions still raise a specific
 ## Configuration And Output
 
 `OraclePlannerConfig` keeps all distances and raster limits configurable. The
-Day 3 defaults are development proxies and are not frozen executor parameters:
+evaluation defaults are development proxies and are not frozen executor parameters:
 
 ```text
 resolution:                    0.25 m

@@ -23,7 +23,7 @@ POINT_COUNT_BINS = (
 
 @dataclass(frozen=True)
 class ReferenceUprightBox:
-    """Canonical reference box for Day 6 proxy evaluation."""
+    """Canonical reference box for lifting proxy evaluation."""
 
     centre_xyz: np.ndarray
     dimensions_xyz: np.ndarray

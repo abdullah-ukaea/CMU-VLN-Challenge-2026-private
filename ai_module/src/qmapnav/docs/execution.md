@@ -1,6 +1,6 @@
 # Question And Waypoint Execution
 
-The Day 2 protocol layer owns episode input and robust single-active-waypoint
+The protocol protocol layer owns episode input and robust single-active-waypoint
 execution. Its state and safety decisions are deterministic and independent of
 ROS transport.
 
@@ -64,7 +64,7 @@ Tracing observes those events but does not control state transitions.
 
 ## Cancellation
 
-The challenge exposes no cancel topic. Day 1 established that a newly published
+The challenge exposes no cancel topic. baseline established that a newly published
 waypoint immediately replaces the base's current goal. Cancellation therefore:
 
 1. clears the executor's active and recovery targets;
@@ -86,4 +86,4 @@ The mission node uses the official interfaces:
 - `/way_point_with_heading` (`geometry_msgs/msg/Pose2D`).
 
 A `0.25 s` timer invokes the pure watchdog. Heading is sent to the base and
-retained for pose-hold cancellation, but it does not gate Day 2 arrival.
+retained for pose-hold cancellation, but it does not gate protocol arrival.

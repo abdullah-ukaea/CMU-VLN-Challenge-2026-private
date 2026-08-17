@@ -1,4 +1,4 @@
-"""Shared released and query-facing colour vocabulary for Day 8."""
+"""Shared released and query-facing colour vocabulary for colour."""
 
 import re
 

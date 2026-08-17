@@ -1,4 +1,4 @@
-"""Lazy Ultralytics YOLOE adapter for Day 4 candidate A."""
+"""Lazy Ultralytics YOLOE adapter for perception candidate A."""
 
 from contextlib import chdir
 from importlib import import_module

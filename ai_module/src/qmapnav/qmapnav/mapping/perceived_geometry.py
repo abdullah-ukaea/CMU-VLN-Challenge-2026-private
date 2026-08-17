@@ -8,7 +8,7 @@ information plus an explicit ``orientation_confidence``, so it is adapted here
 rather than duplicating the polygon logic for perceived maps.
 
 When orientation evidence is weak the adapter falls back to the axis-aligned
-box and reports ``yaw = 0``, matching the Day 6 conservative marker policy:
+box and reports ``yaw = 0``, matching the lifting conservative marker policy:
 never invent a precise orientation from weak evidence, and prefer slightly
 over-covering the object.
 """

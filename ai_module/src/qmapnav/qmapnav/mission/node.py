@@ -386,11 +386,11 @@ class QMapNavNode(Node):
 
     @property
     def relation_graph(self) -> RelationGraph:
-        """Expose current derived Day 8 relations for downstream reasoning."""
+        """Expose current derived colour relations for downstream reasoning."""
         return self._relation_graph
 
     def reset_persistent_maps(self) -> None:
-        """Reset Day 7 object and structural identities at an episode boundary."""
+        """Reset mapping object and structural identities at an episode boundary."""
         self._object_map.reset_episode()
         self._structural_map.reset_episode()
         self._relation_graph.recompute([])
@@ -1363,7 +1363,7 @@ class QMapNavNode(Node):
                 )
             except ValueError as error:
                 self.get_logger().warning(
-                    f'Rejected scan from Day 5 projection path: {error}'
+                    f'Rejected scan from projection projection path: {error}'
                 )
 
         if result.status in {

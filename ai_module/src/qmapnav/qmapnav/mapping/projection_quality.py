@@ -1,4 +1,4 @@
-"""Geometric support summaries inside wrap-aware Day 4 detections."""
+"""Geometric support summaries inside wrap-aware perception detections."""
 
 from dataclasses import dataclass
 from math import isfinite
@@ -151,7 +151,7 @@ def summarize_detections(
     projection: ProjectionResult,
     config: ProjectionQualityConfig | None = None,
 ) -> tuple[DetectionProjection, ...]:
-    """Summarize projected support for every final Day 4 detection."""
+    """Summarize projected support for every final perception detection."""
     return tuple(
         summarize_detection_projection(detection, projection, config)
         for detection in detections

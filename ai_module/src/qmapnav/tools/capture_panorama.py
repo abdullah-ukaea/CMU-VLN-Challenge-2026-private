@@ -21,7 +21,7 @@ def capture_panorama(
     if timeout_sec <= 0.0:
         raise ValueError('timeout_sec must be positive')
     rclpy.init()
-    node = rclpy.create_node('qmapnav_day4_panorama_capture')
+    node = rclpy.create_node('qmapnav_panorama_capture')
     try:
         received, message = wait_for_message(
             Image,

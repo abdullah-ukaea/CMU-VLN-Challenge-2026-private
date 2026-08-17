@@ -1,4 +1,4 @@
-"""Conservative, auditable association of Day 6 object candidates."""
+"""Conservative, auditable association of lifting object candidates."""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -128,7 +128,7 @@ class AssociationScore:
 
 
 def canonicalize_class_name(class_name: str) -> str:
-    """Normalize detector labels and apply the shared Day 7 aliases."""
+    """Normalize detector labels and apply the shared mapping aliases."""
     if not isinstance(class_name, str) or not class_name.strip():
         raise ValueError('class_name must be non-empty')
     token = re.sub(

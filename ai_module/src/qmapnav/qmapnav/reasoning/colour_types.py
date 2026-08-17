@@ -1,4 +1,4 @@
-"""Validated Day 8 colour contracts."""
+"""Validated colour colour contracts."""
 
 from dataclasses import dataclass
 from math import isfinite

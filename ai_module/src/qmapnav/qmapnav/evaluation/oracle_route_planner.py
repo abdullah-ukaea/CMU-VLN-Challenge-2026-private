@@ -50,7 +50,7 @@ class RoutePlanningError(ValueError):
 
 @dataclass(frozen=True)
 class OraclePlannerConfig:
-    """Configurable geometric and raster parameters for the Day 3 planner."""
+    """Configurable geometric and raster parameters for the evaluation planner."""
 
     resolution: float = 0.25
     robot_radius: float = 0.15

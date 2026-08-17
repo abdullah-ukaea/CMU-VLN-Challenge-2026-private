@@ -5,7 +5,7 @@ adapter in `qmapnav.evaluation`. This data is development/evaluation input; it
 must never become a dependency of hidden-scene runtime behavior.
 
 This module only loads and validates data. Oracle solving, semantic geometry,
-route planning, and proxy metrics are separate Day 3 tasks.
+route planning, and proxy metrics are separate evaluation tasks.
 
 ## Sources
 

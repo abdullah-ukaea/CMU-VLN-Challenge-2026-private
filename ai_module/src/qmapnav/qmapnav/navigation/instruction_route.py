@@ -1,9 +1,9 @@
 """
 The first perceived semantic route: go near A, then stop near B.
 
-Stages are grounded through the Day 9 perceived resolver rather than oracle
+Stages are grounded through the reasoning perceived resolver rather than oracle
 coordinates, and each stage's goal is a pose inside that object's semantic
-near region. Day 11 supports exactly two ordered stages; gates, forbidden
+near region. instruction supports exactly two ordered stages; gates, forbidden
 polygons, and augmented-state planning arrive on Days 13-15.
 """
 
@@ -23,7 +23,7 @@ from qmapnav.navigation.semantic_regions import select_goal_pose
 from qmapnav.reasoning.semantic_geometry import SemanticRegion
 
 
-#: Parsed actions Day 11 accepts as a destination stage.
+#: Parsed actions instruction accepts as a destination stage.
 DESTINATION_ACTIONS = frozenset(
     {'go_near', 'go_to', 'stop_at', 'stop_near'}
 )
@@ -125,7 +125,7 @@ class PerceivedRoutePlan:
             raise ValueError('stages must be uniquely and ascendingly ordered')
         object.__setattr__(self, 'stages', stages)
         if self.route_status == 'planned' and len(stages) != 2:
-            raise ValueError('a planned Day 11 route has exactly two stages')
+            raise ValueError('a planned instruction route has exactly two stages')
         if self.route_status == 'terminal_only' and len(stages) != 1:
             raise ValueError('a terminal-only route has exactly one stage')
         if self.route_status == 'stage_a_only' and len(stages) != 1:
@@ -174,7 +174,7 @@ def two_stage_steps(
     """
     Extract exactly two ordered destination stages from a parsed task.
 
-    Raises when the instruction is not a Day 11 two-stage route so callers
+    Raises when the instruction is not a bounded instruction route so callers
     fall back explicitly instead of silently truncating a longer instruction.
     """
     if task.task_type != 'instruction_following':
@@ -184,17 +184,17 @@ def two_stage_steps(
     steps = tuple(task.ordered_route_steps)
     if len(steps) != 2:
         raise TwoStageRouteError(
-            f'Day 11 supports exactly two stages, got {len(steps)}'
+            f'Instruction routes support exactly two stages, got {len(steps)}'
         )
     output = []
     for step in steps:
         if step.action not in DESTINATION_ACTIONS:
             raise TwoStageRouteError(
-                f'unsupported Day 11 stage action: {step.action}'
+                f'unsupported instruction stage action: {step.action}'
             )
         if len(step.entity_ids) != 1:
             raise TwoStageRouteError(
-                'Day 11 stages reference exactly one entity each'
+                'Instruction stages reference exactly one entity each'
             )
         output.append((step.step_index, step.action, step.entity_ids[0]))
     return tuple(output)

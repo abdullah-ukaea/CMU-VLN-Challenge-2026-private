@@ -1,4 +1,4 @@
-"""Fit and serialize Day 8 colour prototypes from released RGB metadata."""
+"""Fit and serialize colour colour prototypes from released RGB metadata."""
 
 from collections import defaultdict
 import csv
